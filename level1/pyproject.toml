@@ -1,0 +1,28 @@
+[project]
+name = "level1-finance-query-assistant"
+version = "0.1.0"
+description = "Level 1：金融数据查询助手 — Python、LLM 与金融数据基础"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0.0",
+    "pandas>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "akshare>=1.15.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

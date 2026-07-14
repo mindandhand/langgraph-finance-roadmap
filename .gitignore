@@ -9,3 +9,9 @@ qlib-demos/**/artifacts/
 qlib-demos/qlib-data/**/qlib_bin/
 qlib-demos/qlib-data/*.zip
 agent-demos/**/artifacts/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
