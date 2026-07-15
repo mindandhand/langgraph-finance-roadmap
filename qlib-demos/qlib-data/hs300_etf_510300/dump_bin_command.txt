@@ -1,0 +1,1 @@
+python scripts/dump_bin.py dump_all --data_path /Users/neil/python-project/langgraph-finance-roadmap/qlib-demos/qlib-data/hs300_etf_510300/csv --qlib_dir /Users/neil/python-project/langgraph-finance-roadmap/qlib-demos/qlib-data/hs300_etf_510300/qlib_bin --include_fields open,high,low,close,volume,amount,factor --symbol_field_name symbol --date_field_name date --file_suffix .csv

@@ -5,3 +5,7 @@ langgraph-demos/.env
 *.py[cod]
 .claude/settings.local.json
 **/.claude/settings.local.json
+qlib-demos/**/artifacts/
+qlib-demos/qlib-data/**/qlib_bin/
+qlib-demos/qlib-data/*.zip
+agent-demos/**/artifacts/
