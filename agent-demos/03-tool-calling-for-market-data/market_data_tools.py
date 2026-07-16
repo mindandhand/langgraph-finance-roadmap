@@ -1,10 +1,18 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
+import pandas as pd
 
-PRICE_DB = {
-    "SH510300": [3.90, 3.94, 3.98, 3.92, 4.02],
-}
+
+DATA_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "qlib-demos"
+    / "qlib-data"
+    / "hs300_etf_510300"
+    / "csv"
+    / "SH510300.csv"
+)
 
 
 @dataclass
@@ -13,23 +21,67 @@ class ToolCall:
     args: dict[str, Any]
 
 
-def get_prices(symbol: str) -> dict[str, Any]:
-    return {"symbol": symbol, "prices": PRICE_DB[symbol]}
+@dataclass
+class ToolResult:
+    name: str
+    ok: bool
+    data: dict[str, Any] = field(default_factory=dict)
+    error: str = ""
 
 
-TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
+def get_prices(symbol: str, start_date: str, end_date: str) -> ToolResult:
+    try:
+        frame = pd.read_csv(DATA_PATH, parse_dates=["date"])
+        selected = frame[
+            (frame["symbol"] == symbol)
+            & frame["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
+        ].copy()
+        if selected.empty:
+            return ToolResult(
+                name="get_prices",
+                ok=False,
+                error=f"no rows for {symbol} from {start_date} to {end_date}",
+            )
+        return ToolResult(
+            name="get_prices",
+            ok=True,
+            data={
+                "symbol": symbol,
+                "rows": len(selected),
+                "start": selected["date"].min().strftime("%Y-%m-%d"),
+                "end": selected["date"].max().strftime("%Y-%m-%d"),
+                "artifact_ref": str(DATA_PATH),
+                "last_close": float(selected.iloc[-1]["close"]),
+            },
+        )
+    except Exception as exc:
+        return ToolResult(name="get_prices", ok=False, error=str(exc))
+
+
+TOOLS: dict[str, Callable[..., ToolResult]] = {
     "get_prices": get_prices,
 }
 
 
 def decide_tool(question: str) -> ToolCall:
-    if "price" in question.lower() or "momentum" in question.lower():
-        return ToolCall(name="get_prices", args={"symbol": "SH510300"})
+    lowered = question.lower()
+    if "price" in lowered or "momentum" in lowered or "510300" in lowered:
+        return ToolCall(
+            name="get_prices",
+            args={
+                "symbol": "SH510300",
+                "start_date": "2024-01-01",
+                "end_date": "2024-03-31",
+            },
+        )
     raise ValueError("No allowed tool matches the question")
 
 
-def run_tool(call: ToolCall) -> dict[str, Any]:
-    return TOOLS[call.name](**call.args)
+def run_tool(call: ToolCall) -> ToolResult:
+    tool = TOOLS.get(call.name)
+    if tool is None:
+        return ToolResult(name=call.name, ok=False, error="tool is not registered")
+    return tool(**call.args)
 
 
 if __name__ == "__main__":

@@ -1,85 +1,181 @@
 import json
-from io import StringIO
 from pathlib import Path
+from typing import TypedDict
 
 import pandas as pd
+from langgraph.graph import END, START, StateGraph
 
 
-CSV = """date,symbol,close
-2024-01-02,A,10.0
-2024-01-03,A,10.2
-2024-01-04,A,10.5
-2024-01-05,A,10.4
-2024-01-08,A,10.8
-2024-01-09,A,10.7
-2024-01-02,B,20.0
-2024-01-03,B,19.8
-2024-01-04,B,20.1
-2024-01-05,B,20.4
-2024-01-08,B,20.2
-2024-01-09,B,20.6
-"""
-
+DATA_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "qlib-demos"
+    / "qlib-data"
+    / "hs300_etf_510300"
+    / "csv"
+    / "SH510300.csv"
+)
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 
 
-def compute_factor() -> pd.DataFrame:
-    df = pd.read_csv(StringIO(CSV), parse_dates=["date"]).sort_values(["symbol", "date"])
-    by_symbol = df.groupby("symbol")
-    df["factor"] = df["close"] / by_symbol["close"].shift(2) - 1
-    df["label"] = by_symbol["close"].shift(-1) / df["close"] - 1
-    return df.dropna().reset_index(drop=True)
+class ResearchState(TypedDict):
+    experiment_id: str
+    symbol: str
+    start_date: str
+    end_date: str
+    lookback: int
+    label_horizon: int
+    factor_ref: str
+    metrics: dict[str, float]
+    review_decision: str
+    backtest_ref: str
+    report_ref: str
+    trace: list[str]
+    status: str
 
 
-def evaluate(data: pd.DataFrame) -> dict:
-    daily = data.groupby("date").apply(
-        lambda g: pd.Series({
-            "ic": g["factor"].corr(g["label"]),
-            "rank_ic": g["factor"].corr(g["label"], method="spearman"),
-        }),
-        include_groups=False,
-    )
-    return {"mean_ic": float(daily["ic"].mean()), "mean_rank_ic": float(daily["rank_ic"].mean())}
+def define_candidate_factor(state: ResearchState) -> dict:
+    return {
+        "trace": [*state["trace"], "define_candidate_factor"],
+        "status": "factor_defined",
+    }
 
 
-def backtest(data: pd.DataFrame) -> pd.DataFrame:
+def compute_factor(state: ResearchState) -> dict:
+    frame = pd.read_csv(DATA_PATH, parse_dates=["date"])
+    data = frame[
+        (frame["symbol"] == state["symbol"])
+        & frame["date"].between(pd.Timestamp(state["start_date"]), pd.Timestamp(state["end_date"]))
+    ].sort_values(["symbol", "date"]).copy()
+    by_symbol = data.groupby("symbol")
+    data["factor"] = data["close"] / by_symbol["close"].shift(state["lookback"]) - 1
+    data["label"] = by_symbol["close"].shift(-state["label_horizon"]) / data["close"] - 1
+    data = data.dropna(subset=["factor", "label"]).reset_index(drop=True)
+
+    ARTIFACT_DIR.mkdir(exist_ok=True)
+    factor_ref = ARTIFACT_DIR / "factor_data.csv"
+    data.to_csv(factor_ref, index=False)
+    return {
+        "factor_ref": str(factor_ref),
+        "trace": [*state["trace"], "compute_factor"],
+        "status": "factor_computed",
+    }
+
+
+def evaluate_factor(state: ResearchState) -> dict:
+    data = pd.read_csv(state["factor_ref"], parse_dates=["date"])
+    metrics = {
+        "rows": float(len(data)),
+        "ic": float(data["factor"].corr(data["label"])),
+        "rank_ic": float(data["factor"].corr(data["label"], method="spearman")),
+        "factor_mean": float(data["factor"].mean()),
+        "label_mean": float(data["label"].mean()),
+    }
+    return {
+        "metrics": metrics,
+        "trace": [*state["trace"], "evaluate_factor"],
+        "status": "evaluated",
+    }
+
+
+def auto_review(state: ResearchState) -> dict:
+    metrics = state["metrics"]
+    enough_rows = metrics.get("rows", 0) >= 120
+    finite_ic = metrics.get("ic") == metrics.get("ic")
+    decision = "approve_backtest" if enough_rows and finite_ic else "reject_backtest"
+    return {
+        "review_decision": decision,
+        "trace": [*state["trace"], f"review:{decision}"],
+        "status": "reviewed",
+    }
+
+
+def route_after_review(state: ResearchState) -> str:
+    return "run_backtest" if state["review_decision"] == "approve_backtest" else "write_report"
+
+
+def run_backtest(state: ResearchState) -> dict:
+    data = pd.read_csv(state["factor_ref"], parse_dates=["date"])
     picks = data.sort_values(["date", "factor"], ascending=[True, False]).groupby("date").head(1)
     picks = picks.sort_values("date").reset_index(drop=True)
     picks["turnover"] = (picks["symbol"] != picks["symbol"].shift(1)).astype(float)
     picks.loc[0, "turnover"] = 1.0
     picks["net_return"] = picks["label"] - picks["turnover"] * 0.001
     picks["equity"] = (1 + picks["net_return"]).cumprod()
-    return picks
 
-
-def main() -> None:
-    ARTIFACT_DIR.mkdir(exist_ok=True)
-    trace = []
-
-    trace.append("define_candidate_factor")
-    data = compute_factor()
-    data.to_csv(ARTIFACT_DIR / "factor_data.csv", index=False)
-
-    trace.append("evaluate_factor")
-    metrics = evaluate(data)
-
-    approved = metrics["mean_ic"] == metrics["mean_ic"]
-    trace.append("human_review_auto_approved" if approved else "human_review_rejected")
-
-    bt = backtest(data) if approved else pd.DataFrame()
-    if approved:
-        bt.to_csv(ARTIFACT_DIR / "backtest.csv", index=False)
-
-    report = {
-        "candidate_factor": "2-day momentum",
+    backtest_ref = ARTIFACT_DIR / "backtest.csv"
+    picks.to_csv(backtest_ref, index=False)
+    metrics = {
+        **state["metrics"],
+        "backtest_rows": float(len(picks)),
+        "total_net_return": float(picks["equity"].iloc[-1] - 1),
+        "avg_turnover": float(picks["turnover"].mean()),
+    }
+    return {
+        "backtest_ref": str(backtest_ref),
         "metrics": metrics,
-        "backtest_rows": len(bt),
-        "decision": "requires_review_before_real_use",
+        "trace": [*state["trace"], "run_backtest"],
+        "status": "backtested",
+    }
+
+
+def write_report(state: ResearchState) -> dict:
+    trace = [*state["trace"], "write_report"]
+    report = {
+        "experiment_id": state["experiment_id"],
+        "symbol": state["symbol"],
+        "candidate_factor": f"{state['lookback']}-day momentum",
+        "period": {"start": state["start_date"], "end": state["end_date"]},
+        "metrics": state["metrics"],
+        "artifact_refs": {
+            "factor": state["factor_ref"],
+            "backtest": state["backtest_ref"],
+        },
+        "decision": "requires_human_review_before_real_use",
         "trace": trace,
     }
-    (ARTIFACT_DIR / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps(report, indent=2))
+    report_ref = ARTIFACT_DIR / "report.json"
+    report_ref.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return {
+        "report_ref": str(report_ref),
+        "trace": trace,
+        "status": "reported",
+    }
+
+
+builder = StateGraph(ResearchState)
+builder.add_node("define_candidate_factor", define_candidate_factor)
+builder.add_node("compute_factor", compute_factor)
+builder.add_node("evaluate_factor", evaluate_factor)
+builder.add_node("auto_review", auto_review)
+builder.add_node("run_backtest", run_backtest)
+builder.add_node("write_report", write_report)
+builder.add_edge(START, "define_candidate_factor")
+builder.add_edge("define_candidate_factor", "compute_factor")
+builder.add_edge("compute_factor", "evaluate_factor")
+builder.add_edge("evaluate_factor", "auto_review")
+builder.add_conditional_edges("auto_review", route_after_review)
+builder.add_edge("run_backtest", "write_report")
+builder.add_edge("write_report", END)
+graph = builder.compile()
 
 
 if __name__ == "__main__":
-    main()
+    result = graph.invoke({
+        "experiment_id": "agent-e2e-001",
+        "symbol": "SH510300",
+        "start_date": "2024-01-01",
+        "end_date": "2026-07-14",
+        "lookback": 5,
+        "label_horizon": 1,
+        "factor_ref": "",
+        "metrics": {},
+        "review_decision": "",
+        "backtest_ref": "",
+        "report_ref": "",
+        "trace": [],
+        "status": "created",
+    })
+    print("status:", result["status"])
+    print("report_ref:", result["report_ref"])
+    print("metrics:", json.dumps(result["metrics"], indent=2))
+    print("trace:", " -> ".join(result["trace"]))
