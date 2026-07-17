@@ -1,27 +1,70 @@
 # 05：标签和时间切分
 
-这节用 Qlib 表达式同时读取特征和未来收益标签，重点检查金融时间序列任务里的时间语义。
+这一节用 Qlib 表达式同时读取特征和未来收益标签，重点检查金融时间序列任务里的时间方向。
 
-## 核心流程图
+## 图结构
 
-```text
-Qlib expressions
-  -> feature: "$close / Ref($close, 20) - 1"
-  -> label: "Ref($close, -5) / $close - 1"
-  -> D.features 对齐 datetime / instrument
-  -> 按时间切 train / test
-  -> 检查 feature 只看过去、label 只用于训练和评估
+```mermaid
+graph TD
+    A["feature expression: past/current data"] --> C["D.features"]
+    B["label expression: future return"] --> C
+    C --> D["aligned DataFrame"]
+    D --> E["train: start_time -> train_end_time"]
+    D --> F["test: test_start_time -> end_time"]
+    E --> G["只用于拟合"]
+    F --> H["只用于样本外评估"]
 ```
 
-单行样本的时间线：
+样本时间线：
 
-```text
-t-20 ... t-1, t
-  -> feature 在信号日 t 可知
-  -> label 使用 t 之后 5 个交易周期的收益
-  -> 模型训练时学习 feature(t) 和 label(t) 的关系
-  -> 实盘预测时只能看到 feature(t)
+```mermaid
+graph LR
+    A["t-20 ... t-1"] --> B["信号日 t"]
+    B --> C["feature(t) 可知"]
+    B --> D["t+1 ... t+5"]
+    D --> E["label(t) 事后实现"]
 ```
+
+## Python 文件逐段拆解
+
+### `fields`
+
+脚本读取三列：
+
+```python
+fields = [
+    "$close",
+    "$close / Ref($close, 20) - 1",
+    "Ref($close, -5) / $close - 1",
+]
+```
+
+第二列是过去 20 日动量，能作为特征。第三列引用未来价格，只能作为标签。
+
+### `load_features(...)`
+
+这里仍然通过 `D.features` 一次性读取 feature 和 label。Qlib 会按 `datetime, instrument` 对齐两列，避免手工 merge 造成错位。
+
+### `with_datetime_instrument_index(...)`
+
+把索引统一成 `datetime, instrument`。这样下面可以直接按日期切片：
+
+```python
+train = data.loc[:train_end_time()]
+test = data.loc[test_start_time():]
+```
+
+### `train_end_time()` / `test_start_time()`
+
+这两个 helper 从环境变量读取切分点。它们的作用是把实验时间边界显式化，避免脚本里到处硬编码日期。
+
+## 一次运行的完整执行轨迹
+
+1. 初始化 Qlib。
+2. `D.features` 读取收盘价、20 日动量和未来 5 日收益标签。
+3. 删除空值。
+4. 按时间切出 train 和 test。
+5. 打印完整样本、训练区间和测试区间。
 
 ## 运行方式
 
@@ -29,25 +72,20 @@ t-20 ... t-1, t
 QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python labels_and_time_splits.py
 ```
 
-## 为什么不能随机切分
+可选：
 
-金融样本必须按时间切分：
-
-```text
-过去数据 -> train
-未来数据 -> test
+```bash
+QLIB_TRAIN_END_TIME=2020-06-30
+QLIB_TEST_START_TIME=2020-07-01
 ```
 
-随机切分会让训练集看到测试期之后的市场状态，造成回测结果虚高。
+## 常见坑
 
-## 你应该检查什么
-
-- train/test 日期是否不重叠。
-- test 是否晚于 train。
-- feature 表达式是否只使用当前和历史数据。
-- label 表达式是否没有进入 feature 列。
-- 切分前后索引仍然是 `datetime, instrument`。
+- 用随机切分处理金融时间序列。
+- 把未来收益标签写进 feature。
+- 用测试期信息 fit 标准化参数。
+- 信号日和成交日混在一起。
 
 ## 下一步
 
-进入 `06-factor-evaluation`，用同样的 feature / label 对齐结果计算 IC、RankIC 和分组收益。
+进入 `06-factor-evaluation`，用对齐后的 factor / label 计算 IC、RankIC 和分组收益。

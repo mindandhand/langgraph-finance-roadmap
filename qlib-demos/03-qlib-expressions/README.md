@@ -1,27 +1,76 @@
 # 03：Qlib 表达式引擎
 
-这节直接把表达式字符串交给 Qlib `D.features` 计算，观察 `$close`、`Ref`、`Mean`、`Std`、`Rank` 如何从 provider 字段变成因子矩阵。
+这一节把表达式字符串交给 Qlib `D.features` 计算。重点不是记语法，而是理解表达式如何把基础行情字段变成因子矩阵。
 
-## 核心流程图
+## 图结构
 
-```text
-Qlib provider 基础字段
-  -> Qlib expression strings
-  -> D.features 解析和计算表达式
-  -> factor(datetime, instrument)
-  -> 时间序列特征 + 横截面特征
+```mermaid
+graph TD
+    A["provider 基础字段: $close / $volume"] --> B["Qlib expression strings"]
+    B --> C["D.features 解析表达式"]
+    C --> D["时间序列算子: Ref / Mean / Std"]
+    C --> E["横截面算子: Rank"]
+    D --> F["factor(datetime, instrument)"]
+    E --> F
 ```
 
-表达式可以理解成一棵计算树：
+表达式树可以这样理解：
 
-```text
-"$close / Ref($close, 20) - 1"
-  -> Feature($close)
-  -> Ref(Feature($close), 20)
-  -> Div
-  -> Sub(1)
-  -> MOM20
+```mermaid
+graph TD
+    A["$close / Ref($close, 20) - 1"] --> B["Feature($close)"]
+    A --> C["Ref(Feature($close), 20)"]
+    B --> D["Div"]
+    C --> D
+    D --> E["Sub 1"]
+    E --> F["MOM20"]
 ```
+
+## Python 文件逐段拆解
+
+### `fields`
+
+脚本定义一组 Qlib 表达式：
+
+```python
+fields = [
+    "$close",
+    "Ref($close, 1)",
+    "$close / Ref($close, 20) - 1",
+    "Mean($close, 20) / $close",
+    "Std($close / Ref($close, 1) - 1, 20)",
+    "Mean($volume, 5) / Mean($volume, 20)",
+    "Rank($close / Ref($close, 20) - 1)",
+]
+```
+
+这些字符串会被 Qlib 表达式引擎解析。`D.features` 不是把字符串拼成 Python 代码执行，而是用 Qlib 内部算子计算每个字段。
+
+### `Ref`
+
+`Ref($close, 1)` 表示向过去取一个交易周期的收盘价。它适合放在 feature 中。
+
+`Ref($close, -5)` 表示引用未来数据，只能用于 label 或事后评估，不能作为预测特征。
+
+### `Mean` / `Std`
+
+这两个是时间序列窗口算子。它们在每只股票自己的历史序列上滚动计算，不会把不同股票的数据串起来。
+
+### `Rank`
+
+`Rank(...)` 是横截面算子，语义是同一天不同股票之间的相对排名。自动因子评估里的 RankIC 也依赖这种横截面比较。
+
+### `load_features(fields, names)`
+
+脚本仍然通过 `load_features` 调用 `D.features`。这说明 Qlib 的 Data API 不只读取原始字段，也负责表达式计算。
+
+## 一次运行的完整执行轨迹
+
+1. 初始化 Qlib provider。
+2. 把表达式列表传给 `D.features`。
+3. Qlib 根据 provider 字段计算 Ref、Mean、Std、Rank。
+4. 返回 `datetime, instrument` MultiIndex DataFrame。
+5. 脚本丢掉空值并打印前几行。
 
 ## 运行方式
 
@@ -29,33 +78,12 @@ Qlib provider 基础字段
 QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python qlib_expressions.py
 ```
 
-## 本节表达式
-
-脚本计算：
-
-```text
-$close
-Ref($close, 1)
-$close / Ref($close, 20) - 1
-Mean($close, 20) / $close
-Std($close / Ref($close, 1) - 1, 20)
-Mean($volume, 5) / Mean($volume, 20)
-Rank($close / Ref($close, 20) - 1)
-```
-
-## 核心原理
-
-- `Ref($close, 1)` 引用过去一个交易周期的数据，可以作为特征。
-- `Ref($close, -5)` 引用未来数据，只能用于标签或事后评估。
-- `Mean / Std` 是每只股票自己的时间序列窗口计算。
-- `Rank` 是横截面计算，用于同一天不同股票之间的比较。
-
 ## 常见坑
 
-- 把未来收益表达式写进 feature。
-- 忘记时间序列计算和横截面计算的边界。
-- 只看某一天的 Rank，不做长期 IC / RankIC 验证。
+- 把 `Ref($close, -5)` 写进 feature，造成未来函数。
+- 用单标的观察 `Rank`，横截面意义不足。
+- 日期范围太短，20 日窗口特征前期会为空。
 
 ## 下一步
 
-进入 `04-data-handler-and-dataset`，把表达式组织成 Qlib `feature` / `label` 配置，并交给 `DataHandlerLP` 和 `DatasetH`。
+进入 `04-data-handler-and-dataset`，把表达式组织成 feature / label config，并交给 Qlib 的 Handler 和 Dataset。

@@ -1,19 +1,65 @@
 # 10：配置驱动的 Qlib 因子评估流程
 
-Qlib 正式研究经常由配置描述数据、表达式、标签、模型、回测和记录方式。这节用一个 Python `CONFIG` dict 串起因子评估闭环，让配置和执行逻辑分离。
+这一节用一个 Python `CONFIG` dict 串起因子评估。它不是完整 `qrun`，但体现了 Qlib 项目常见思想：研究对象由配置描述，执行逻辑保持稳定。
 
-## 核心流程图
+## 图结构
+
+```mermaid
+graph TD
+    A["CONFIG"] --> B["factor_expression"]
+    A --> C["label_expression"]
+    B --> D["evaluate_factor"]
+    C --> D
+    D --> E["D.features"]
+    E --> F["metrics"]
+    A --> G["artifacts/config.json"]
+    F --> H["artifacts/metrics.json"]
+```
+
+## Python 文件逐段拆解
+
+### `CONFIG`
+
+配置包含：
+
+```python
+{
+    "experiment_id": "qlib_factor_eval_001",
+    "factor_expression": "...",
+    "label_expression": "...",
+    "topk": 50,
+    "cost_rate": 0.001,
+}
+```
+
+当前脚本主要使用 factor 和 label 做预测层评估。`topk` 和 `cost_rate` 是后续策略层评估参数，保留在配置中是为了让实验边界完整。
+
+### `init_qlib()`
+
+配置只是描述实验，真正执行前仍要初始化 Qlib provider。没有 provider，表达式无法被确定性计算。
+
+### `evaluate_factor(...)`
+
+这是第 6 节的核心评估函数。配置驱动并不改变评估逻辑，只改变输入参数。
+
+### `artifacts`
+
+脚本写出：
 
 ```text
-CONFIG
-  -> factor_expression
-  -> label_expression
-  -> evaluate_factor
-  -> D.features
-  -> coverage / IC / RankIC / ICIR / quantile returns
-  -> artifacts/config.json
-  -> artifacts/metrics.json
+config.json
+metrics.json
 ```
+
+这对应真实研究中的两个关键产物：实验输入和实验输出。自动因子系统必须同时保存两者。
+
+## 一次运行的完整执行轨迹
+
+1. 读取 `CONFIG`。
+2. 初始化 Qlib。
+3. 用配置里的 factor/label 调用 `evaluate_factor`。
+4. 创建 `artifacts/<experiment_id>/`。
+5. 保存 config 和 metrics。
 
 ## 运行方式
 
@@ -21,44 +67,19 @@ CONFIG
 QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python config_driven_alpha_workflow.py
 ```
 
-运行后生成：
-
-```text
-artifacts/qlib_factor_eval_001/
-├── config.json
-└── metrics.json
-```
-
-## 配置控制了什么
-
-脚本顶部的 `CONFIG` 是最小实验配置：
-
-```python
-CONFIG = {
-    "experiment_id": "qlib_factor_eval_001",
-    "factor_expression": "$close / Ref($close, 20) - 1",
-    "label_expression": "Ref($close, -5) / $close - 1",
-    "topk": 50,
-    "cost_rate": 0.001,
-}
-```
-
-当前脚本主要使用 `factor_expression` 和 `label_expression` 做预测层评估。`topk` 和 `cost_rate` 保留为后续策略层评估配置，完整组合回测见第 12 节。
-
 ## 核心原理
 
-配置驱动的价值不是“少写代码”，而是让每次实验可以复查：
+配置驱动的价值是复现和批量化：
 
-```text
-候选表达式
-  -> 固定标签
-  -> 固定市场和时间区间
-  -> 固定评估函数
-  -> 固定输出目录
+```mermaid
+graph LR
+    A["多个候选表达式"] --> B["同一个评估函数"]
+    B --> C["统一 metrics schema"]
+    C --> D["可比较结果"]
 ```
 
-自动因子挖掘系统尤其需要这个边界。Agent 可以生成候选表达式，但评估逻辑和记录格式应保持确定。
+Agent 可以生成候选表达式，但评估函数、标签定义、时间区间和输出格式必须稳定。
 
 ## 下一步
 
-进入 `11-alpha158-alpha360-feature-sets`，查看 Qlib 官方预定义 feature set 如何被组织成 DataHandler。
+进入 `11-alpha158-alpha360-feature-sets`，看 Qlib 官方预定义特征集合如何封装成 Handler。

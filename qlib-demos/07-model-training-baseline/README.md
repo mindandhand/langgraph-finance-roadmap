@@ -1,19 +1,80 @@
 # 07：Qlib 模型训练基线
 
-这节使用 Qlib `DataHandlerLP`、`DatasetH` 和 `LGBModel` 训练一个 LightGBM 基线模型，并在 test segment 上产生预测分数。
+这一节使用 Qlib `DataHandlerLP`、`DatasetH` 和 `LGBModel` 训练 LightGBM 基线模型，并在 test segment 上产生样本外预测分数。
 
-## 核心流程图
+## 图结构
+
+```mermaid
+graph TD
+    A["feature / label expression config"] --> B["DataHandlerLP"]
+    B --> C["DatasetH train/test"]
+    C --> D["LGBModel.fit(dataset)"]
+    D --> E["LGBModel.predict(test)"]
+    E --> F["score(datetime, instrument)"]
+    C --> G["test label"]
+    F --> H["join score + label"]
+    G --> H
+    H --> I["daily IC"]
+```
+
+## Python 文件逐段拆解
+
+### `FEATURE_FIELDS` / `LABEL_FIELDS`
+
+这里定义模型输入和训练目标。特征包括动量、波动率、成交量比例，标签是未来收益。
+
+Qlib 的关键点是：这些不是提前落盘的 CSV 列，而是交给 `QlibDataLoader` 计算的表达式。
+
+### `build_dataset()`
+
+这个函数创建：
 
 ```text
-feature / label expression config
-  -> DataHandlerLP + Processor
-  -> DatasetH(train / test)
-  -> LGBModel.fit(dataset)
-  -> LGBModel.predict(dataset, segment="test")
-  -> score(datetime, instrument)
-  -> join label
-  -> daily IC
+DataHandlerLP
+  -> QlibDataLoader
+  -> learn_processors
+  -> DatasetH segments
 ```
+
+`DataHandlerLP` 负责把表达式加载结果处理成训练/推理可用的数据。`DatasetH` 负责按时间段切出 `train` 和 `test`。
+
+### `learn_processors`
+
+脚本使用：
+
+```text
+DropnaLabel
+ProcessInf
+Fillna
+```
+
+这些 Processor 的作用是让训练数据更适合模型：删除无标签样本，处理无穷值，填补缺失特征。正式项目里还要特别注意 infer 和 learn 处理链一致性。
+
+### `LGBModel`
+
+`LGBModel` 是 Qlib 对 LightGBM 的模型封装。它的 `fit(dataset)` 会从 `DatasetH` 中取出 train segment 的 feature/label，再训练模型。
+
+### `model.predict(dataset, segment="test")`
+
+预测阶段只取 test segment 的 feature，输出：
+
+```text
+score(datetime, instrument)
+```
+
+score 是模型排序信号，不是策略收益。它后续还要进入 IC 评估或组合回测。
+
+### `daily_ic`
+
+脚本把 score 和 test label join 后，按日期计算横截面相关系数。这一步验证模型预测分数是否和未来收益有关系。
+
+## 一次运行的完整执行轨迹
+
+1. 初始化 Qlib。
+2. 构造 `DataHandlerLP` 和 `DatasetH`。
+3. `LGBModel.fit(dataset)` 训练模型。
+4. `model.predict(..., segment="test")` 生成样本外 score。
+5. 读取 test label，并计算 daily IC。
 
 ## 运行方式
 
@@ -21,42 +82,13 @@ feature / label expression config
 QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python model_training_baseline.py
 ```
 
-## 本节特征
-
-```text
-MOM5
-MOM20
-VOL20
-VOLUME_RATIO_5_20
-```
-
-标签：
-
-```text
-Ref($close, -2) / Ref($close, -1) - 1
-```
-
-## 核心原理
-
-模型输出的是 `score`，不是收益：
-
-```text
-feature matrix
-  -> model
-  -> score
-  -> 与 label 计算 IC
-  -> 后续再进入 strategy / backtest
-```
-
-`score` 只表达模型对横截面相对表现的判断。它还没有持仓、成交、成本和账户状态。
-
 ## 常见坑
 
-- `learn_processors` 和 `infer_processors` 不一致，导致训练和预测特征处理不同。
-- 用全样本训练后报告 test 表现。
+- 用 test 数据参与训练或调参。
+- 训练和推理处理链不一致。
 - 把 label 混进 feature。
-- 只看训练损失，不看样本外 IC。
+- 把 score 当成可交易收益。
 
 ## 下一步
 
-进入 `08-recorder-and-experiment`，用 Qlib Recorder 记录参数、指标和 artifact。
+进入 `08-recorder-and-experiment`，用 Qlib Recorder 保存参数、指标和 artifact。
