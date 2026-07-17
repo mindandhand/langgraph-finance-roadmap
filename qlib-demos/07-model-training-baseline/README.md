@@ -1,89 +1,62 @@
-# 07：先做一个可解释的模型训练基线
+# 07：Qlib 模型训练基线
 
-这一节把单因子扩展为多特征模型，但故意不用复杂机器学习框架。脚本只用 NumPy 做线性回归，重点是把训练、预测和样本外评估的边界跑通。
+这节使用 Qlib `DataHandlerLP`、`DatasetH` 和 `LGBModel` 训练一个 LightGBM 基线模型，并在 test segment 上产生预测分数。
 
-## 这个示例想说明什么
+## 核心流程图
 
-Qlib 可以接很多模型，例如 LightGBM、线性模型、深度模型等。但模型类型不是第一优先级。更重要的是：
-
-- 特征是否只来自过去。
-- 标签是否定义清楚。
-- train/test 是否按时间切分。
-- 预测分数是否只在样本外评估。
-- 模型输出是否会进入后续策略回测。
-
-这个示例用最小线性模型建立基线，避免把问题复杂度藏在模型库里。
+```text
+feature / label expression config
+  -> DataHandlerLP + Processor
+  -> DatasetH(train / test)
+  -> LGBModel.fit(dataset)
+  -> LGBModel.predict(dataset, segment="test")
+  -> score(datetime, instrument)
+  -> join label
+  -> daily IC
+```
 
 ## 运行方式
 
 ```bash
-python model_training_baseline.py
+QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python model_training_baseline.py
 ```
 
-输出包括：
+## 本节特征
 
-- 线性模型权重
-- test 区间每只股票的 `score`
-- test 区间每日 IC 均值
-
-## 训练数据怎么来
-
-脚本构造两个特征：
-
-```python
-momentum_3d
-volume_change_3d
+```text
+MOM5
+MOM20
+VOL20
+VOLUME_RATIO_5_20
 ```
 
-标签是未来 1 日收益：
+标签：
 
-```python
-label
+```text
+Ref($close, -2) / Ref($close, -1) - 1
 ```
 
-然后按时间切分：
+## 核心原理
 
-```python
-train = data[data["date"] <= "2024-01-09"]
-test = data[data["date"] > "2024-01-09"]
+模型输出的是 `score`，不是收益：
+
+```text
+feature matrix
+  -> model
+  -> score
+  -> 与 label 计算 IC
+  -> 后续再进入 strategy / backtest
 ```
 
-## 模型做了什么
-
-线性回归的输入矩阵手工加截距项：
-
-```python
-x = np.column_stack([np.ones(len(x)), x])
-```
-
-权重用普通最小二乘求解：
-
-```python
-weights = np.linalg.pinv(x.T @ x) @ x.T @ y
-```
-
-这不是为了推荐你在真实项目里手写 OLS，而是让训练过程完全透明。等这个闭环理解了，再换成 Qlib 的模型组件就只是接口替换。
-
-## 预测分数不是收益
-
-模型输出的 `score` 只是排序信号，不是交易收益。很多新手会看到模型 IC 或预测分数就直接下结论，这是不够的。分数后面还必须经过：
-
-- 选股规则
-- 持仓构造
-- 换手和交易成本
-- 回测统计
-- 风险暴露检查
-
-本节只到“预测分数和 IC”，策略收益放到第 9 节。
+`score` 只表达模型对横截面相对表现的判断。它还没有持仓、成交、成本和账户状态。
 
 ## 常见坑
 
-- 用全样本训练后再报告 test 表现。
-- 忘记固定切分日期，导致实验不可复现。
-- 把 `label` 混进 feature 列。
-- 只看模型拟合误差，不看样本外排序效果。
-- 认为模型越复杂越好，忽略简单基线。
+- `learn_processors` 和 `infer_processors` 不一致，导致训练和预测特征处理不同。
+- 用全样本训练后报告 test 表现。
+- 把 label 混进 feature。
+- 只看训练损失，不看样本外 IC。
 
 ## 下一步
 
-进入 `08-recorder-and-experiment`。模型训练一旦开始变多，就必须记录参数、指标和产物，否则研究结果无法复现。
+进入 `08-recorder-and-experiment`，用 Qlib Recorder 记录参数、指标和 artifact。

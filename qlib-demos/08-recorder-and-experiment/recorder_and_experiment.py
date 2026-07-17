@@ -1,49 +1,38 @@
-import json
-from io import StringIO
+import os
 from pathlib import Path
+import sys
 
-import pandas as pd
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "06-factor-evaluation"))
 
-
-SAMPLE = """date,symbol,score,label
-2024-01-10,SH600000,0.010,-0.0075
-2024-01-10,SZ000001,0.014,-0.0056
-2024-01-10,SH600519,0.006,-0.0057
-2024-01-11,SH600000,0.007,0.0114
-2024-01-11,SZ000001,0.012,0.0094
-2024-01-11,SH600519,0.005,0.0068
-"""
-
-
-ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "exp_001"
+from factor_evaluation import DEFAULT_FACTOR, DEFAULT_LABEL, evaluate_factor
+from qlib_demo_common import init_qlib, print_context
 
 
 def main() -> None:
-    predictions = pd.read_csv(StringIO(SAMPLE), parse_dates=["date"])
-    daily_ic = predictions.groupby("date").apply(
-        lambda g: g["score"].corr(g["label"]),
-        include_groups=False,
-    )
+    init_qlib()
+    from qlib.workflow import R
 
-    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    predictions.to_csv(ARTIFACT_DIR / "predictions.csv", index=False)
+    expression = os.getenv("QLIB_FACTOR_EXPR", DEFAULT_FACTOR)
+    label = os.getenv("QLIB_LABEL_EXPR", DEFAULT_LABEL)
+    print_context("Qlib Recorder / Experiment")
 
-    params = {
-        "experiment_id": "exp_001",
-        "model": "linear_baseline",
-        "features": ["momentum_3d", "volume_change_3d"],
-        "label": "next_1d_return",
-    }
-    metrics = {
-        "mean_ic": round(float(daily_ic.mean()), 6),
-        "prediction_rows": len(predictions),
-    }
-    (ARTIFACT_DIR / "params.json").write_text(json.dumps(params, indent=2), encoding="utf-8")
-    (ARTIFACT_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    with R.start(experiment_name="qlib_demo_factor_eval", recorder_name="factor_eval"):
+        metrics = evaluate_factor(expression, label)
+        R.log_params(
+            factor_expression=expression,
+            label_expression=label,
+        )
+        R.log_metrics(
+            coverage=metrics["coverage"],
+            ic_mean=metrics["ic_mean"],
+            rank_ic_mean=metrics["rank_ic_mean"],
+            icir=metrics["icir"] or 0.0,
+            rank_icir=metrics["rank_icir"] or 0.0,
+        )
+        R.save_objects(**{"metrics.pkl": metrics})
 
-    print("recorded experiment:", ARTIFACT_DIR)
-    print("params:", params)
-    print("metrics:", metrics)
+    print("recorded metrics:", metrics)
 
 
 if __name__ == "__main__":

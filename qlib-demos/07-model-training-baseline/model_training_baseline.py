@@ -1,74 +1,79 @@
-from io import StringIO
+from pathlib import Path
+import sys
 
-import numpy as np
-import pandas as pd
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-SAMPLE = """date,symbol,close,volume
-2024-01-02,SH600000,10.00,1200000
-2024-01-03,SH600000,10.10,1180000
-2024-01-04,SH600000,10.30,1215000
-2024-01-05,SH600000,10.20,1195000
-2024-01-08,SH600000,10.45,1250000
-2024-01-09,SH600000,10.60,1280000
-2024-01-10,SH600000,10.52,1260000
-2024-01-11,SH600000,10.70,1290000
-2024-01-12,SH600000,10.82,1300000
-2024-01-15,SH600000,10.76,1270000
-2024-01-02,SZ000001,12.00,2200000
-2024-01-03,SZ000001,11.90,2180000
-2024-01-04,SZ000001,12.10,2250000
-2024-01-05,SZ000001,12.35,2290000
-2024-01-08,SZ000001,12.30,2310000
-2024-01-09,SZ000001,12.55,2350000
-2024-01-10,SZ000001,12.48,2330000
-2024-01-11,SZ000001,12.70,2380000
-2024-01-12,SZ000001,12.82,2400000
-2024-01-15,SZ000001,12.78,2370000
-2024-01-02,SH600519,1700.00,90000
-2024-01-03,SH600519,1712.00,91000
-2024-01-04,SH600519,1705.00,88000
-2024-01-05,SH600519,1720.00,93000
-2024-01-08,SH600519,1735.00,94000
-2024-01-09,SH600519,1748.00,97000
-2024-01-10,SH600519,1738.00,92000
-2024-01-11,SH600519,1760.00,98000
-2024-01-12,SH600519,1772.00,99000
-2024-01-15,SH600519,1765.00,95000
-"""
+from qlib_demo_common import end_time, init_qlib, market, print_context, start_time, test_start_time, train_end_time
 
 
-def build_dataset() -> pd.DataFrame:
-    df = pd.read_csv(StringIO(SAMPLE), parse_dates=["date"]).sort_values(["symbol", "date"])
-    by_symbol = df.groupby("symbol")
-    df["momentum_3d"] = df["close"] / by_symbol["close"].shift(3) - 1
-    df["volume_change_3d"] = df["volume"] / by_symbol["volume"].shift(3) - 1
-    df["label"] = by_symbol["close"].shift(-1) / df["close"] - 1
-    return df.dropna().reset_index(drop=True)
+FEATURE_FIELDS = [
+    "$close / Ref($close, 5) - 1",
+    "$close / Ref($close, 20) - 1",
+    "Std($close / Ref($close, 1) - 1, 20)",
+    "Mean($volume, 5) / Mean($volume, 20)",
+]
+FEATURE_NAMES = ["MOM5", "MOM20", "VOL20", "VOLUME_RATIO_5_20"]
+LABEL_FIELDS = ["Ref($close, -2) / Ref($close, -1) - 1"]
+LABEL_NAMES = ["LABEL0"]
 
 
-def fit_linear(train: pd.DataFrame, features: list[str]) -> np.ndarray:
-    x = train[features].to_numpy(float)
-    y = train["label"].to_numpy(float)
-    x = np.column_stack([np.ones(len(x)), x])
-    return np.linalg.pinv(x.T @ x) @ x.T @ y
+def build_dataset():
+    from qlib.data.dataset import DatasetH
+    from qlib.data.dataset.handler import DataHandlerLP
+
+    handler = DataHandlerLP(
+        instruments=market(),
+        start_time=start_time(),
+        end_time=end_time(),
+        data_loader={
+            "class": "QlibDataLoader",
+            "kwargs": {
+                "config": {
+                    "feature": (FEATURE_FIELDS, FEATURE_NAMES),
+                    "label": (LABEL_FIELDS, LABEL_NAMES),
+                }
+            },
+        },
+        learn_processors=[
+            {"class": "DropnaLabel"},
+            {"class": "ProcessInf", "kwargs": {"fields_group": "feature"}},
+            {"class": "Fillna", "kwargs": {"fields_group": "feature"}},
+        ],
+    )
+    return DatasetH(
+        handler=handler,
+        segments={
+            "train": (start_time(), train_end_time()),
+            "test": (test_start_time(), end_time()),
+        },
+    )
 
 
 def main() -> None:
-    features = ["momentum_3d", "volume_change_3d"]
-    data = build_dataset()
-    train = data[data["date"] <= "2024-01-09"].copy()
-    test = data[data["date"] > "2024-01-09"].copy()
-    weights = fit_linear(train, features)
+    init_qlib()
+    print_context("Qlib model training baseline")
 
-    x_test = np.column_stack([np.ones(len(test)), test[features].to_numpy(float)])
-    test["score"] = x_test @ weights
-    ic = test.groupby("date").apply(lambda g: g["score"].corr(g["label"]), include_groups=False)
+    from qlib.contrib.model.gbdt import LGBModel
+    from qlib.data.dataset.handler import DataHandlerLP
 
-    print("weights:", dict(zip(["intercept", *features], [round(float(v), 6) for v in weights])))
-    print("test predictions:")
-    print(test[["date", "symbol", "score", "label"]].to_string(index=False))
-    print("mean test IC:", round(float(ic.mean()), 6))
+    dataset = build_dataset()
+    model = LGBModel(
+        loss="mse",
+        learning_rate=0.05,
+        num_leaves=32,
+        max_depth=6,
+        num_threads=4,
+    )
+    model.fit(dataset)
+
+    pred = model.predict(dataset, segment="test")
+    label = dataset.prepare("test", col_set="label", data_key=DataHandlerLP.DK_L).iloc[:, 0]
+    joined = pred.rename("score").to_frame().join(label.rename("label"), how="inner").dropna()
+    daily_ic = joined.groupby(level="datetime").apply(lambda g: g["score"].corr(g["label"]), include_groups=False)
+
+    print("prediction rows:", len(pred))
+    print("mean test IC:", round(float(daily_ic.mean()), 6))
+    print(joined.head(20).to_string())
 
 
 if __name__ == "__main__":

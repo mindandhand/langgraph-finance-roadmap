@@ -2,7 +2,18 @@
 
 很多人第一次看到 `Alpha158`、`Alpha360` 会以为它们是模型、策略或某种神秘 Alpha。它们都不是。它们本质上是 **Qlib 预定义的特征集合 / DataHandler 配置**：用一批 Qlib 表达式从行情字段中生成特征矩阵，再配上标签和处理器，供 Dataset 和模型使用。
 
-这节用一个小脚本拆开它们的思想，并演示如何在同一套机制里加自定义因子。
+这节直接实例化 Qlib 原生 `Alpha158` 和 `Alpha360`，通过 `DatasetH.prepare` 观察它们生成的 feature / label 表。
+
+## 核心流程图
+
+```text
+Alpha158 / Alpha360 handler
+  -> 内置 feature expression config
+  -> QlibDataLoader
+  -> DataHandlerLP processors
+  -> DatasetH.prepare
+  -> feature / label matrix
+```
 
 ## 这个示例想说明什么
 
@@ -25,15 +36,15 @@ Alpha158 / Alpha360
 ## 运行方式
 
 ```bash
-python alpha_feature_sets.py
+QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python alpha_feature_sets.py
 ```
 
 输出会展示：
 
-- 一个简化版 Alpha158 特征配置。
-- 一个简化版 Alpha360 特征配置。
-- 一组自定义因子表达式。
-- 用内置小数据计算出的部分特征。
+- `Alpha158` 的训练数据 shape。
+- `Alpha158` 的 feature 列数量和前若干列名。
+- `Alpha360` 的训练数据 shape。
+- `Alpha360` 的 feature 列数量和前若干列名。
 
 ## Alpha158 怎么理解
 
@@ -71,7 +82,7 @@ volume_shock_5 = $volume / Mean($volume, 5) - 1
 intraday_strength = ($close - $open) / ($high - $low + 1e-12)
 ```
 
-在真实 Qlib 里，你可以把这些表达式加入 `QlibDataLoader` 的 feature config，或者继承/改造 DataHandler。这个示例用 Pandas 等价实现，重点是说明“自定义因子并不是单独一套系统”，它和 Alpha158/Alpha360 一样，最终都要变成 feature matrix。
+在 Qlib 里，你可以把这些表达式加入 `QlibDataLoader` 的 feature config，或者继承/改造 DataHandler。自定义因子并不是单独一套系统，它和 Alpha158/Alpha360 一样，最终都要变成 feature matrix。
 
 ## 和自动因子挖掘的关系
 

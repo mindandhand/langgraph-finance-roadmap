@@ -4,6 +4,19 @@
 
 脚本不会真的生成 Qlib `.bin` 文件，因为那应该使用 Qlib 官方 `scripts/dump_bin.py`。本示例做的是接入前的最小准备：检查原始 CSV 字段、生成 calendar/instrument 摘要、模拟 provider 目录结构，并输出可以交给 `dump_bin.py` 的命令。
 
+## 核心流程图
+
+```text
+vendor CSV / AkShare data
+  -> 字段标准化和质量检查
+  -> calendar.txt
+  -> instruments.txt
+  -> normalized CSV / Parquet
+  -> scripts/dump_bin.py
+  -> Qlib provider
+  -> D.features / DataHandler / Dataset
+```
+
 ## 这个示例想说明什么
 
 Qlib 数据不是普通 CSV 的原因在于：它要支持高效的时间序列读取、表达式计算、缓存、股票池和实验复现。官方文档说明 Qlib 使用专门的 `.bin` 格式管理金融数据，并提供 `scripts/dump_bin.py` 把格式正确的 CSV/Parquet 转换为 Qlib format。

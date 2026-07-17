@@ -1,78 +1,57 @@
-# 12：Qlib 原生回测架构怎么协作
+# 12：Qlib 原生组合回测
 
-第 9 节用一个手写 top-k 回测讲清楚了时间线。这一节继续拆 Qlib 原生回测架构里的角色：`Strategy`、`Executor`、`Exchange`、`Account`。脚本仍然是一个小型模拟器，但类名和职责刻意贴近 Qlib 的设计。
+这一节使用 Qlib 原生回测链路，不再手写 `Strategy / Executor / Exchange / Account` 模拟器。
 
-## 这个示例想说明什么
+## 核心流程图
 
-Qlib 回测不是“把预测分数乘以下期收益”这么简单。一个完整回测至少要有四类角色：
-
-- Strategy：根据预测分数和当前持仓，生成目标持仓或订单。
-- Executor：按时间推进回测，调用策略，提交订单，收集结果。
-- Exchange：判断订单能否成交，并计算成交价、交易成本、限制条件。
-- Account：维护现金、持仓、市值、成本和净值。
-
-它们共同回答的问题是：**模型分数经过真实交易约束之后，能不能变成可执行的组合收益？**
+```text
+Alpha158 / DatasetH
+  -> LGBModel
+  -> SignalRecord
+  -> TopkDropoutStrategy
+  -> SimulatorExecutor
+  -> PortAnaRecord
+  -> portfolio_analysis artifacts
+```
 
 ## 运行方式
 
 ```bash
-python native_backtest_architecture.py
+QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python native_backtest_architecture.py
 ```
 
-输出会展示每日：
+可选参数：
 
-- 策略选择了哪只股票
-- 账户发生了什么交易
-- 成本后净值如何变化
+```bash
+QLIB_MARKET=csi300
+QLIB_BENCHMARK=SH000300
+QLIB_TOPK=50
+QLIB_N_DROP=5
+QLIB_DEAL_PRICE=close
+QLIB_OPEN_COST=0.0005
+QLIB_CLOSE_COST=0.0015
+```
 
-## 四个角色怎么协作
+## 这个示例想说明什么
 
-流程可以简化为：
+Qlib 组合回测不是把 `score` 乘以下期收益。`PortAnaRecord` 会基于预测信号调用：
+
+- `TopkDropoutStrategy`：把 score 转成持仓/交易决策。
+- `SimulatorExecutor`：按交易日推进模拟执行。
+- `Exchange`：处理成交价格、成本、涨跌停等市场规则。
+- `Account`：维护现金、持仓、成本和净值。
+
+最终结果保存在 Recorder 的 `portfolio_analysis/` artifact 中，包括：
 
 ```text
-Executor 当前日期推进
-  ↓
-Strategy 读取当天 score，生成目标持仓
-  ↓
-Exchange 按价格和成本撮合订单
-  ↓
-Account 更新现金、持仓和净值
-  ↓
-Executor 记录 report
+report_normal_1day.pkl
+positions_normal_1day.pkl
+indicators_normal_1day.pkl
+port_analysis_1day.pkl
 ```
 
-Qlib 官方示例里，`TopkDropoutStrategy` 可以用预测分数生成订单；`SimulatorExecutor` 负责模拟执行；`backtest_config` 里包含 `account` 和 `exchange_kwargs`，例如初始资金、成交价格、开平仓成本和最小成本。
+## 和自动因子评估的关系
 
-## 为什么模型预测结果不能直接等同策略收益
+`06` 和 `14` 解决的是预测层评估：coverage、IC、RankIC、分组收益。
 
-预测分数只表示排序或相对强弱。它还没有回答：
-
-- 买多少？
-- 什么时候买？
-- 能不能成交？
-- 成本多少？
-- 是否停牌或涨跌停？
-- 当前账户现金够不够？
-- 组合是否过度集中？
-
-这些问题都属于策略和回测层。只有经过这层，才能从 `score` 变成 `return`、`cost`、`equity`、`drawdown` 等结果。
-
-## IC、分层收益、组合回测的区别
-
-- IC / RankIC：衡量分数和未来收益的相关性，偏研究信号质量。
-- 分层收益：看高分组是否系统性跑赢低分组，偏横截面排序验证。
-- 组合回测：加入持仓、换手、成本、现金和交易约束，偏可执行策略评估。
-
-所以三者不是互相替代，而是逐层加约束。
-
-## 常见坑
-
-- 用模型预测均值直接当策略收益。
-- 回测没有现金和持仓状态。
-- 成本只扣一次，忽略买卖双边和换手。
-- 不区分 benchmark、market universe 和单个指数标的。
-- 忽略涨跌停、停牌、最小交易单位等交易规则。
-
-## 下一步
-
-进入 `13-custom-data-provider`，解决另一个实际问题：如果不用 Qlib 官方数据，如何把自己的金融数据接入 Qlib 体系。
+本节解决的是策略层评估：候选信号经过 top-k、换手、成本和 benchmark 后，是否还能形成可执行组合表现。

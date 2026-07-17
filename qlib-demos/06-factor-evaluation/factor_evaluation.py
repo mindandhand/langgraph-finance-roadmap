@@ -1,58 +1,64 @@
-from io import StringIO
+import json
+import os
+from pathlib import Path
+import sys
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-SAMPLE = """date,symbol,close,volume
-2024-01-02,SH600000,10.00,1200000
-2024-01-03,SH600000,10.10,1180000
-2024-01-04,SH600000,10.30,1215000
-2024-01-05,SH600000,10.20,1195000
-2024-01-08,SH600000,10.45,1250000
-2024-01-09,SH600000,10.60,1280000
-2024-01-10,SH600000,10.52,1260000
-2024-01-11,SH600000,10.70,1290000
-2024-01-02,SZ000001,12.00,2200000
-2024-01-03,SZ000001,11.90,2180000
-2024-01-04,SZ000001,12.10,2250000
-2024-01-05,SZ000001,12.35,2290000
-2024-01-08,SZ000001,12.30,2310000
-2024-01-09,SZ000001,12.55,2350000
-2024-01-10,SZ000001,12.48,2330000
-2024-01-11,SZ000001,12.70,2380000
-2024-01-02,SH600519,1700.00,90000
-2024-01-03,SH600519,1712.00,91000
-2024-01-04,SH600519,1705.00,88000
-2024-01-05,SH600519,1720.00,93000
-2024-01-08,SH600519,1735.00,94000
-2024-01-09,SH600519,1748.00,97000
-2024-01-10,SH600519,1738.00,92000
-2024-01-11,SH600519,1760.00,98000
-"""
+from qlib_demo_common import load_features, print_context, with_datetime_instrument_index
 
 
-def prepare() -> pd.DataFrame:
-    df = pd.read_csv(StringIO(SAMPLE), parse_dates=["date"]).sort_values(["symbol", "date"])
-    by_symbol = df.groupby("symbol")
-    df["factor"] = df["close"] / by_symbol["close"].shift(3) - 1
-    df["label"] = by_symbol["close"].shift(-1) / df["close"] - 1
-    return df.dropna(subset=["factor", "label"]).reset_index(drop=True)
+DEFAULT_FACTOR = "$close / Ref($close, 20) - 1"
+DEFAULT_LABEL = "Ref($close, -5) / $close - 1"
 
 
-def score_day(group: pd.DataFrame) -> pd.Series:
-    ranked = group.sort_values("factor", ascending=False)
-    return pd.Series({
-        "ic": group["factor"].corr(group["label"]),
-        "rank_ic": group["factor"].corr(group["label"], method="spearman"),
-        "top_minus_bottom": ranked.iloc[0]["label"] - ranked.iloc[-1]["label"],
-    })
+def evaluate_factor(expression: str, label: str, quantiles: int = 5) -> dict:
+    data = with_datetime_instrument_index(
+        load_features([expression, label], ["factor", "label"])
+    )
+    total_rows = len(data)
+    data = data.dropna()
+
+    daily = data.groupby(level="datetime").apply(
+        lambda g: pd.Series(
+            {
+                "ic": g["factor"].corr(g["label"]),
+                "rank_ic": g["factor"].corr(g["label"], method="spearman"),
+            }
+        ),
+        include_groups=False,
+    )
+
+    def quantile_return(group: pd.DataFrame) -> pd.Series:
+        bucket = pd.qcut(group["factor"].rank(method="first"), quantiles, labels=False, duplicates="drop")
+        return group.groupby(bucket)["label"].mean()
+
+    quantile = data.groupby(level="datetime").apply(quantile_return, include_groups=False)
+    quantile_mean = quantile.groupby(level=-1).mean().to_dict()
+
+    ic_std = daily["ic"].std()
+    rank_ic_std = daily["rank_ic"].std()
+    return {
+        "expression": expression,
+        "label": label,
+        "rows": int(len(data)),
+        "coverage": round(float(len(data) / total_rows), 6) if total_rows else 0.0,
+        "ic_mean": round(float(daily["ic"].mean()), 6),
+        "rank_ic_mean": round(float(daily["rank_ic"].mean()), 6),
+        "icir": round(float(daily["ic"].mean() / ic_std), 6) if ic_std else None,
+        "rank_icir": round(float(daily["rank_ic"].mean() / rank_ic_std), 6) if rank_ic_std else None,
+        "quantile_return_mean": {str(int(k)): round(float(v), 6) for k, v in quantile_mean.items()},
+    }
 
 
 def main() -> None:
-    result = prepare().groupby("date").apply(score_day, include_groups=False)
-    print(result.to_string())
-    print("\nmean IC:", round(float(result["ic"].mean()), 6))
-    print("mean Rank IC:", round(float(result["rank_ic"].mean()), 6))
+    expression = os.getenv("QLIB_FACTOR_EXPR", DEFAULT_FACTOR)
+    label = os.getenv("QLIB_LABEL_EXPR", DEFAULT_LABEL)
+    print_context("Qlib factor evaluation")
+    metrics = evaluate_factor(expression, label)
+    print(json.dumps(metrics, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

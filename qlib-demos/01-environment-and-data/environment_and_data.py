@@ -1,36 +1,24 @@
-import importlib.util
-import os
-from io import StringIO
+from pathlib import Path
+import sys
 
-import pandas as pd
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-SAMPLE = """date,symbol,close,volume
-2024-01-02,SH600000,10.00,1200000
-2024-01-03,SH600000,10.10,1180000
-2024-01-04,SH600000,10.30,1215000
-2024-01-05,SH600000,10.20,1195000
-2024-01-08,SH600000,10.45,1250000
-2024-01-09,SH600000,10.60,1280000
-2024-01-02,SZ000001,12.00,2200000
-2024-01-03,SZ000001,11.90,2180000
-2024-01-04,SZ000001,12.10,2250000
-2024-01-05,SZ000001,12.35,2290000
-2024-01-08,SZ000001,12.30,2310000
-2024-01-09,SZ000001,12.55,2350000
-"""
+from qlib_demo_common import import_qlib, init_qlib, print_context, start_time, end_time
 
 
 def main() -> None:
-    has_qlib = importlib.util.find_spec("qlib") is not None
-    provider_uri = os.getenv("QLIB_PROVIDER_URI")
-    sample = pd.read_csv(StringIO(SAMPLE), parse_dates=["date"])
+    qlib = import_qlib()
+    provider_uri = init_qlib()
+    from qlib.data import D
 
-    print("pyqlib installed:", has_qlib)
-    print("QLIB_PROVIDER_URI:", provider_uri or "<not set>")
-    print("fallback sample rows:", len(sample))
-    print("symbols:", sorted(sample["symbol"].unique().tolist()))
-    print("\nNext: run ../02-qlib-data-api/qlib_data_api.py")
+    print_context("Qlib environment")
+    print("qlib module:", qlib.__file__)
+
+    calendar = D.calendar(start_time=start_time(), end_time=end_time(), freq="day")
+    print("calendar rows:", len(calendar))
+    if len(calendar):
+        print("calendar range:", calendar[0], "to", calendar[-1])
+    print("provider ready:", provider_uri)
 
 
 if __name__ == "__main__":

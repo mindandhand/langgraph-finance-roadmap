@@ -1,101 +1,110 @@
-from dataclasses import dataclass, field
-from io import StringIO
+import os
+from pathlib import Path
+import sys
 
-import pandas as pd
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-PREDICTIONS = """date,symbol,score,close,next_close
-2024-01-10,SH600000,0.010,10.52,10.70
-2024-01-10,SZ000001,0.014,12.48,12.70
-2024-01-10,SH600519,0.006,1738.00,1760.00
-2024-01-11,SH600000,0.007,10.70,10.82
-2024-01-11,SZ000001,0.012,12.70,12.82
-2024-01-11,SH600519,0.005,1760.00,1772.00
-2024-01-12,SH600000,0.009,10.82,10.76
-2024-01-12,SZ000001,0.006,12.82,12.78
-2024-01-12,SH600519,0.004,1772.00,1765.00
-"""
+from qlib_demo_common import end_time, init_qlib, market, print_context, start_time, test_start_time, train_end_time
 
 
-@dataclass
-class Order:
-    symbol: str
-    target_weight: float
+def build_dataset():
+    from qlib.contrib.data.handler import Alpha158
+    from qlib.data.dataset import DatasetH
+
+    handler = Alpha158(
+        instruments=market(),
+        start_time=start_time(),
+        end_time=end_time(),
+        fit_start_time=start_time(),
+        fit_end_time=train_end_time(),
+    )
+    return DatasetH(
+        handler=handler,
+        segments={
+            "train": (start_time(), train_end_time()),
+            "test": (test_start_time(), end_time()),
+        },
+    )
 
 
-class Top1Strategy:
-    def generate_orders(self, today_scores: pd.DataFrame) -> list[Order]:
-        best = today_scores.sort_values("score", ascending=False).iloc[0]["symbol"]
-        return [Order(symbol=best, target_weight=1.0)]
-
-
-@dataclass
-class Account:
-    cash: float
-    position: dict[str, float] = field(default_factory=dict)
-
-    def total_value(self, prices: dict[str, float]) -> float:
-        stock_value = sum(shares * prices.get(symbol, 0.0) for symbol, shares in self.position.items())
-        return self.cash + stock_value
-
-
-class Exchange:
-    def __init__(self, cost_rate: float):
-        self.cost_rate = cost_rate
-
-    def rebalance_to_single_name(self, account: Account, symbol: str, price: float, current_prices: dict[str, float]) -> float:
-        cost = 0.0
-        for held_symbol, shares in list(account.position.items()):
-            sell_value = shares * current_prices[held_symbol]
-            trade_cost = sell_value * self.cost_rate
-            account.cash += sell_value - trade_cost
-            cost += trade_cost
-            account.position.pop(held_symbol)
-
-        target_value = account.cash
-        buy_cost = target_value * self.cost_rate
-        shares = (target_value - buy_cost) / price
-        account.cash = 0.0
-        account.position[symbol] = shares
-        return cost + buy_cost
-
-
-class Executor:
-    def __init__(self, strategy: Top1Strategy, exchange: Exchange, account: Account):
-        self.strategy = strategy
-        self.exchange = exchange
-        self.account = account
-
-    def run(self, predictions: pd.DataFrame) -> pd.DataFrame:
-        reports = []
-        for date, group in predictions.groupby("date", sort=True):
-            prices = dict(zip(group["symbol"], group["close"]))
-            next_prices = dict(zip(group["symbol"], group["next_close"]))
-            before = self.account.total_value(prices)
-            order = self.strategy.generate_orders(group)[0]
-            cost = self.exchange.rebalance_to_single_name(self.account, order.symbol, prices[order.symbol], prices)
-            after = self.account.total_value(next_prices)
-            reports.append({
-                "date": date,
-                "selected": order.symbol,
-                "value_before": before,
-                "trade_cost": cost,
-                "value_after_next_close": after,
-                "net_return": after / before - 1,
-            })
-        return pd.DataFrame(reports)
+def build_port_analysis_config(model, dataset) -> dict:
+    return {
+        "executor": {
+            "class": "SimulatorExecutor",
+            "module_path": "qlib.backtest.executor",
+            "kwargs": {
+                "time_per_step": "day",
+                "generate_portfolio_metrics": True,
+            },
+        },
+        "strategy": {
+            "class": "TopkDropoutStrategy",
+            "module_path": "qlib.contrib.strategy",
+            "kwargs": {
+                "signal": (model, dataset),
+                "topk": int(os.getenv("QLIB_TOPK", "50")),
+                "n_drop": int(os.getenv("QLIB_N_DROP", "5")),
+            },
+        },
+        "backtest": {
+            "start_time": test_start_time(),
+            "end_time": end_time(),
+            "account": float(os.getenv("QLIB_ACCOUNT", "100000000")),
+            "benchmark": os.getenv("QLIB_BENCHMARK", "SH000300"),
+            "exchange_kwargs": {
+                "freq": "day",
+                "limit_threshold": float(os.getenv("QLIB_LIMIT_THRESHOLD", "0.095")),
+                "deal_price": os.getenv("QLIB_DEAL_PRICE", "close"),
+                "open_cost": float(os.getenv("QLIB_OPEN_COST", "0.0005")),
+                "close_cost": float(os.getenv("QLIB_CLOSE_COST", "0.0015")),
+                "min_cost": float(os.getenv("QLIB_MIN_COST", "5")),
+            },
+        },
+    }
 
 
 def main() -> None:
-    predictions = pd.read_csv(StringIO(PREDICTIONS), parse_dates=["date"])
-    executor = Executor(
-        strategy=Top1Strategy(),
-        exchange=Exchange(cost_rate=0.001),
-        account=Account(cash=1_000_000.0),
+    init_qlib()
+    print_context("Qlib native portfolio backtest")
+
+    from qlib.contrib.model.gbdt import LGBModel
+    from qlib.workflow import R
+    from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
+
+    dataset = build_dataset()
+    model = LGBModel(
+        loss="mse",
+        learning_rate=0.05,
+        num_leaves=32,
+        max_depth=6,
+        num_threads=4,
     )
-    report = executor.run(predictions)
-    report["equity"] = (1 + report["net_return"]).cumprod()
-    print(report.to_string(index=False))
+    port_analysis_config = build_port_analysis_config(model, dataset)
+
+    with R.start(experiment_name="qlib_demo_native_backtest", recorder_name="alpha158_topk"):
+        R.log_params(
+            market=market(),
+            benchmark=port_analysis_config["backtest"]["benchmark"],
+            topk=port_analysis_config["strategy"]["kwargs"]["topk"],
+            n_drop=port_analysis_config["strategy"]["kwargs"]["n_drop"],
+            deal_price=port_analysis_config["backtest"]["exchange_kwargs"]["deal_price"],
+            open_cost=port_analysis_config["backtest"]["exchange_kwargs"]["open_cost"],
+            close_cost=port_analysis_config["backtest"]["exchange_kwargs"]["close_cost"],
+        )
+
+        model.fit(dataset)
+        recorder = R.get_recorder()
+
+        SignalRecord(model, dataset, recorder).generate()
+        PortAnaRecord(recorder, port_analysis_config, "day").generate()
+
+        report = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
+        analysis = recorder.load_object("portfolio_analysis/port_analysis_1day.pkl")
+
+    print("portfolio report tail:")
+    print(report.tail(10).to_string())
+    print("\nportfolio analysis:")
+    print(analysis.to_string())
 
 
 if __name__ == "__main__":
