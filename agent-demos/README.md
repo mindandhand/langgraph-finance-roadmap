@@ -87,6 +87,8 @@ Agent 不应该做：
 | 10 | [`10-multi-agent-review-and-red-team`](10-multi-agent-review-and-red-team) | 多 Agent 审查 | Researcher、Reviewer、Red-Team 分权 |
 | 11 | [`11-agent-experiment-recorder`](11-agent-experiment-recorder) | 实验记录 | 保存参数、指标、artifact、失败原因 |
 | 12 | [`12-end-to-end-quant-research-agent`](12-end-to-end-quant-research-agent) | 完整研究 Agent | 候选因子 → 评估 → 回测 → 审批 → 报告 |
+| 13 | [`13-tool-contracts-and-runtime-guards`](13-tool-contracts-and-runtime-guards) | 工具契约和运行时保护 | 工具描述、参数校验、超时、重试、调用次数限制 |
+| 14 | [`14-langgraph-agent-with-tool-runtime`](14-langgraph-agent-with-tool-runtime) | 工程化 Agent 运行时 | LangGraph 节点通过 ToolRuntime 受控调用工具 |
 
 ## 概念地图
 
@@ -108,6 +110,10 @@ Independent review and red-team（10）
 Experiment recorder（11）
   ↓
 End-to-end quant research agent（12）
+  ↓
+Tool contracts and runtime guards（13）
+  ↓
+LangGraph agent with guarded tool runtime（14）
 ```
 
 ## Agent 和普通 Workflow 的区别
@@ -177,6 +183,7 @@ pip install pandas
 ```
 
 为了保证每个目录独立运行，本路径默认使用 fake model / rule model 和内置小数据，不依赖外部 LLM API。
+部分示例会复用 `qlib-demos/` 中已经生成的本地 ETF 数据文件，但不会联网下载数据。
 
 涉及人工审批的示例可以交互运行，也可以用管道模拟：
 
@@ -194,6 +201,10 @@ printf 'yes\n' | python agent-demos/08-human-review-before-backtest/human_review
 - 为什么 LLM 不能直接给因子结论。
 - 如何把工具调用、artifact、journal 和实验记录串起来。
 - 如何限制 Agent 的研究预算和工具权限。
+- 如何设计工具描述和参数 schema。
+- 如何处理工具超时、临时失败重试和调用次数限制。
+- 如何防止 Agent 因工具失败或决策错误进入无限循环。
+- 如何把 LangGraph workflow 和 ToolRuntime 组合成工程化 Agent。
 - 为什么回测前需要人工审批。
 - 多 Agent 审查为什么不是投票。
 - 如何让 Agent 服务于可复现研究，而不是变成聊天机器人。

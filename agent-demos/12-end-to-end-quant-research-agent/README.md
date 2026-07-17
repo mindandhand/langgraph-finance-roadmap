@@ -245,8 +245,29 @@ trace: define_candidate_factor -> compute_factor -> evaluate_factor -> review:ap
 
 ## 下一步可以扩展
 
-- 把 `compute_factor()` 换成 Qlib 表达式工具。
-- 把 `auto_review()` 换成第 8 节的 `interrupt()`。
-- 把第 10 节 Reviewer / Red-Team 接入回测前分支。
-- 把 report 写入第 11 节的实验记录器。
-- 加入研究预算：最大候选因子数、最大窗口数、最大回测次数。
+第 12 节给出的是端到端图结构。后续扩展不应该继续把逻辑堆进节点函数，而应该把前面几节的控制机制接进来：
+
+- 用第 13 节的 `ToolRuntime` 包住 `compute_factor`、`evaluate_factor` 和 `run_backtest`，让每个工具都有描述、参数 schema、超时、重试和调用次数限制。
+- 把 `compute_factor()` 换成 Qlib 表达式工具，但仍然通过第 13 节的参数校验限制表达式、日期区间和 universe。
+- 把 `auto_review()` 换成第 8 节的 `interrupt()`，让回测前审批真正由人工恢复图执行。
+- 把第 10 节 Reviewer / Red-Team 接入回测前分支，让审查结果决定是否进入回测。
+- 把 report 写入第 11 节的实验记录器，保存工具调用、参数、artifact、指标和最终决策。
+- 把第 6 节的研究预算接进 state，限制最大候选因子数、最大窗口数、最大回测次数。
+
+也就是说，第 12 节负责回答“完整 Agent workflow 长什么样”，第 13 节负责回答“这个 workflow 里的工具调用如何工程化地受控”。两者应该组合使用：
+
+```text
+LangGraph node
+  ↓
+ToolCall
+  ↓
+ToolRuntime.validate_args()
+  ↓
+ToolRuntime.run(timeout / retry / call budget)
+  ↓
+ToolResult
+  ↓
+write result back to ResearchState
+```
+
+图负责状态和路由，工具运行时负责执行边界。缺少任何一边，都不是一个可靠的量化研究 Agent。
