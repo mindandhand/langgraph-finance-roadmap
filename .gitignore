@@ -15,3 +15,4 @@ agent-demos/**/artifacts/
 .venv/
 venv/
 .env
+.worktrees/
