@@ -1,4 +1,5 @@
 import argparse
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,60 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "qlib-demos"))
 
 import download_to_qlib
+
+
+class SharedInstrumentEnvironmentTest(unittest.TestCase):
+    env_script = ROOT / "qlib-demos/qlib_env.sh"
+
+    def test_shared_environment_exports_default_instruments(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1" && printf "%s" "$QLIB_INSTRUMENTS"',
+                "bash",
+                str(self.env_script),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(
+            "sh510050,sh510300,sh510500,sz159915,sh588000",
+            result.stdout,
+        )
+
+    def test_shared_environment_preserves_caller_override(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'QLIB_INSTRUMENTS="custom"; source "$1" && '
+                'printf "%s" "$QLIB_INSTRUMENTS"',
+                "bash",
+                str(self.env_script),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual("custom", result.stdout)
+
+    def test_all_run_scripts_source_shared_environment(self) -> None:
+        run_scripts = sorted((ROOT / "qlib-demos").glob("*/run.sh"))
+
+        self.assertEqual(14, len(run_scripts))
+        for run_script in run_scripts:
+            with self.subTest(run_script=run_script):
+                contents = run_script.read_text()
+                self.assertIn(
+                    'source "$SCRIPT_DIR/../qlib_env.sh"', contents
+                )
+                self.assertNotIn(
+                    'export QLIB_INSTRUMENTS="sh510300"', contents
+                )
 
 
 class MultiEtfProviderModelTest(unittest.TestCase):

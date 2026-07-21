@@ -47,6 +47,28 @@ pip install pyqlib pandas numpy lightgbm
 export QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data
 ```
 
+## 内置宽基 ETF 数据
+
+运行数据准备脚本会生成供这些 demo 共用的五只宽基 ETF 教学数据：
+
+```bash
+python qlib-demos/download_to_qlib.py
+```
+
+| Qlib 标的 | 源代码 | 指数 |
+|---|---|---|
+| sh510050 | 510050 | 上证50 |
+| sh510300 | 510300 | 沪深300 |
+| sh510500 | 510500 | 中证500 |
+| sz159915 | 159915 | 创业板 |
+| sh588000 | 588000 | 科创50 |
+
+Provider 的交易日历取五只 ETF 日期的并集；每只 ETF 仍保留自己的实际上市区间，对齐到并集日历时，上市前的数据不可用并显示为 NaN。这组数据只用于教学，不代表生产股票池。各节 `run.sh` 默认使用这五只 ETF；调用方也可以在运行前设置 `QLIB_INSTRUMENTS` 覆盖默认值，例如：
+
+```bash
+QLIB_INSTRUMENTS=sh510300 bash qlib-demos/03-qlib-expressions/run.sh
+```
+
 可选参数：
 
 ```bash
