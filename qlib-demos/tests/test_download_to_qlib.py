@@ -55,6 +55,23 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
 
         self.assertEqual("custom", result.stdout)
 
+    def test_shared_environment_preserves_empty_override(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'set -u; QLIB_INSTRUMENTS=""; source "$1" && '
+                'printf "%s" "$QLIB_INSTRUMENTS"',
+                "bash",
+                str(self.env_script),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual("", result.stdout)
+
     def test_all_run_scripts_source_shared_environment(self) -> None:
         run_scripts = sorted((ROOT / "qlib-demos").glob("*/run.sh"))
 
