@@ -247,6 +247,88 @@ class SafeProviderPublicationTest(unittest.TestCase):
             ):
                 download_to_qlib.validate_provider(out_dir, frames)
 
+    def test_validate_provider_rejects_whole_float_truncation(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"])
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            corrupt = out_dir / "features/sh510050/open.day.bin"
+            corrupt.write_bytes(corrupt.read_bytes()[:-4])
+
+            with self.assertRaisesRegex(
+                ValueError, "open[.]day[.]bin.*length"
+            ):
+                download_to_qlib.validate_provider(out_dir, frames)
+
+    def test_validate_provider_rejects_wrong_metadata_dates(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"])
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            metadata = out_dir / "instruments/all.txt"
+            metadata.write_text("sh510050\t2020-01-01\t2020-01-02\n")
+
+            with self.assertRaisesRegex(
+                ValueError, "all[.]txt.*metadata"
+            ):
+                download_to_qlib.validate_provider(out_dir, frames)
+
+    def test_validate_provider_rejects_wrong_calendar_content(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"])
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            calendar = out_dir / "calendars/day.txt"
+            calendar.write_text("2024-01-01\n2024-01-09\n")
+
+            with self.assertRaisesRegex(
+                ValueError, "day[.]txt.*calendar"
+            ):
+                download_to_qlib.validate_provider(out_dir, frames)
+
+    def test_validate_provider_rejects_wrong_feature_payload(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"])
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            corrupt = out_dir / "features/sh510050/open.day.bin"
+            values = np.fromfile(corrupt, dtype="<f4")
+            values[-1] = 999.0
+            values.tofile(corrupt)
+
+            with self.assertRaisesRegex(
+                ValueError, "open[.]day[.]bin.*payload"
+            ):
+                download_to_qlib.validate_provider(out_dir, frames)
+
+    def test_validate_provider_rejects_unexpected_feature_artifacts(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"])
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            unexpected_dir = out_dir / "features/sh999999"
+            unexpected_dir.mkdir()
+
+            with self.assertRaisesRegex(
+                ValueError, "features.*unexpected"
+            ):
+                download_to_qlib.validate_provider(out_dir, frames)
+
     def test_publish_provider_restores_original_target_on_swap_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)
@@ -272,6 +354,65 @@ class SafeProviderPublicationTest(unittest.TestCase):
 
             self.assertEqual("original", (target / "marker.txt").read_text())
             self.assertFalse((parent / ".qlib-data.backup").exists())
+
+    def test_publish_provider_recovers_backup_only_state_before_failed_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            target = parent / "qlib-data"
+            backup = parent / ".qlib-data.backup"
+            staging = parent / "staging"
+            backup.mkdir()
+            staging.mkdir()
+            (backup / "marker.txt").write_text("recoverable-original")
+            (staging / "marker.txt").write_text("replacement")
+
+            def replace_except_staging(source: Path, destination: Path) -> None:
+                if source == staging:
+                    raise OSError("simulated staging swap failure")
+                source.replace(destination)
+
+            with mock.patch.object(
+                download_to_qlib,
+                "_replace_path",
+                side_effect=replace_except_staging,
+            ):
+                with self.assertRaisesRegex(OSError, "staging swap failure"):
+                    download_to_qlib.publish_provider(staging, target)
+
+            self.assertEqual(
+                "recoverable-original", (target / "marker.txt").read_text()
+            )
+            self.assertFalse(backup.exists())
+
+    def test_publish_provider_prefers_target_over_stale_backup_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            target = parent / "qlib-data"
+            backup = parent / ".qlib-data.backup"
+            staging = parent / "staging"
+            target.mkdir()
+            backup.mkdir()
+            staging.mkdir()
+            (target / "marker.txt").write_text("authoritative-target")
+            (backup / "marker.txt").write_text("stale-backup")
+
+            def replace_except_staging(source: Path, destination: Path) -> None:
+                if source == staging:
+                    raise OSError("simulated staging swap failure")
+                source.replace(destination)
+
+            with mock.patch.object(
+                download_to_qlib,
+                "_replace_path",
+                side_effect=replace_except_staging,
+            ):
+                with self.assertRaisesRegex(OSError, "staging swap failure"):
+                    download_to_qlib.publish_provider(staging, target)
+
+            self.assertEqual(
+                "authoritative-target", (target / "marker.txt").read_text()
+            )
+            self.assertFalse(backup.exists())
 
     def test_selected_instruments_uses_defaults_without_override(self) -> None:
         args = argparse.Namespace(symbol=None, qlib_symbol=None)
@@ -344,6 +485,126 @@ class SafeProviderPublicationTest(unittest.TestCase):
                 )
 
         self.assertIs(cause, raised.exception.__cause__)
+
+    def test_selected_instruments_rejects_path_traversal_symbol(self) -> None:
+        args = argparse.Namespace(symbol="510050", qlib_symbol="../../victim")
+
+        with self.assertRaisesRegex(ValueError, "qlib_symbol"):
+            download_to_qlib.selected_instruments(args)
+
+    def test_selected_instruments_rejects_empty_symbol(self) -> None:
+        args = argparse.Namespace(symbol="510050", qlib_symbol="   ")
+
+        with self.assertRaisesRegex(ValueError, "qlib_symbol"):
+            download_to_qlib.selected_instruments(args)
+
+    def test_selected_instruments_rejects_invalid_source_symbol(self) -> None:
+        args = argparse.Namespace(symbol="not-an-etf", qlib_symbol="sh510050")
+
+        with self.assertRaisesRegex(ValueError, "source_symbol"):
+            download_to_qlib.selected_instruments(args)
+
+    def test_download_all_rejects_duplicate_qlib_symbols_before_download(self) -> None:
+        specs = (
+            download_to_qlib.InstrumentSpec("510050", "sh510050", "first"),
+            download_to_qlib.InstrumentSpec("510300", "sh510050", "second"),
+        )
+
+        with mock.patch.object(download_to_qlib, "download") as download_mock:
+            with self.assertRaisesRegex(ValueError, "duplicate.*sh510050"):
+                download_to_qlib.download_all(
+                    specs, "20240101", "20240131", "qfq"
+                )
+
+        download_mock.assert_not_called()
+
+    def test_write_provider_rejects_path_traversal_without_external_write(self) -> None:
+        frame = self.make_frame(["2024-01-01"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            out_dir = root / "provider"
+            escaped = root / "victim"
+
+            with self.assertRaisesRegex(ValueError, "qlib_symbol"):
+                download_to_qlib.write_provider({"../../victim": frame}, out_dir)
+
+            self.assertFalse(escaped.exists())
+
+    def test_main_download_failure_leaves_existing_provider_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "qlib-data"
+            target.mkdir()
+            marker = target / "marker.txt"
+            marker.write_text("original")
+            args = argparse.Namespace(
+                symbol="510050",
+                qlib_symbol="sh510050",
+                start="20240101",
+                end="20240131",
+                adjust="qfq",
+                out_dir=str(target),
+            )
+
+            with mock.patch.object(download_to_qlib, "parse_args", return_value=args):
+                with mock.patch.object(
+                    download_to_qlib,
+                    "download",
+                    side_effect=OSError("network unavailable"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "sh510050"):
+                        download_to_qlib.main()
+
+            self.assertEqual("original", marker.read_text())
+
+    def test_main_staging_validation_failure_does_not_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "qlib-data"
+            target.mkdir()
+            marker = target / "marker.txt"
+            marker.write_text("original")
+            args = argparse.Namespace(
+                symbol="510050",
+                qlib_symbol="sh510050",
+                start="20240101",
+                end="20240131",
+                adjust="qfq",
+                out_dir=str(target),
+            )
+
+            with mock.patch.object(download_to_qlib, "parse_args", return_value=args):
+                with mock.patch.object(
+                    download_to_qlib,
+                    "download",
+                    return_value=self.make_frame(["2024-01-01"]),
+                ):
+                    with mock.patch.object(
+                        download_to_qlib,
+                        "validate_provider",
+                        side_effect=ValueError("staged provider is corrupt"),
+                    ):
+                        with mock.patch.object(
+                            download_to_qlib, "publish_provider"
+                        ) as publish_mock:
+                            with self.assertRaisesRegex(
+                                ValueError, "staged provider is corrupt"
+                            ):
+                                download_to_qlib.main()
+
+            publish_mock.assert_not_called()
+            self.assertEqual("original", marker.read_text())
+
+    def test_parse_args_rejects_incomplete_override_with_usage_error(self) -> None:
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["download_to_qlib.py", "--symbol", "510050"],
+        ):
+            with mock.patch("sys.stderr"):
+                with self.assertRaises(SystemExit) as raised:
+                    download_to_qlib.parse_args()
+
+        self.assertEqual(2, raised.exception.code)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ To use the data in qlib:
 """
 
 import argparse
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -43,8 +44,6 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-SYMBOL = "510300"
-QLIB_SYMBOL = "sh510300"
 DATA_DIR = Path(__file__).parent / "qlib-data"  # qlib-demos/qlib-data
 
 
@@ -74,6 +73,8 @@ COLUMN_MAP = {
 }
 REQUIRED_FIELDS = ("open", "close", "high", "low", "volume", "amount", "factor")
 FEATURES = list(REQUIRED_FIELDS)
+QLIB_SYMBOL_PATTERN = re.compile(r"(?:sh|sz)\d{6}\Z")
+SOURCE_SYMBOL_PATTERN = re.compile(r"\d{6}\Z")
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +123,39 @@ def validate_frame(frame: pd.DataFrame, spec: InstrumentSpec) -> None:
         raise ValueError(f"{symbol} frame dates must be monotonic increasing")
 
 
+def _validate_qlib_symbol(qlib_symbol: str) -> None:
+    if not isinstance(qlib_symbol, str) or not QLIB_SYMBOL_PATTERN.fullmatch(
+        qlib_symbol
+    ):
+        raise ValueError(
+            "qlib_symbol must match exactly 'sh' or 'sz' followed by six digits"
+        )
+
+
+def validate_instrument_specs(
+    specs: Iterable[InstrumentSpec],
+) -> tuple[InstrumentSpec, ...]:
+    validated = tuple(specs)
+    seen: set[str] = set()
+    for spec in validated:
+        _validate_qlib_symbol(spec.qlib_symbol)
+        if not isinstance(spec.source_symbol, str) or not SOURCE_SYMBOL_PATTERN.fullmatch(
+            spec.source_symbol
+        ):
+            raise ValueError("source_symbol must contain exactly six digits")
+        if spec.qlib_symbol in seen:
+            raise ValueError(f"duplicate qlib_symbol: {spec.qlib_symbol}")
+        seen.add(spec.qlib_symbol)
+    return validated
+
+
 def download_all(
     specs: Iterable[InstrumentSpec], start: str, end: str, adjust: str
 ) -> dict[str, pd.DataFrame]:
     """Download and validate every instrument before returning any provider input."""
+    validated_specs = validate_instrument_specs(specs)
     frames: dict[str, pd.DataFrame] = {}
-    for spec in specs:
+    for spec in validated_specs:
         try:
             frame = download(spec.source_symbol, start, end, adjust)
             validate_frame(frame, spec)
@@ -194,6 +222,8 @@ def write_features(df: pd.DataFrame, qlib_symbol: str, calendar: pd.DatetimeInde
 
 def write_provider(frames: Mapping[str, pd.DataFrame], out_dir: Path) -> None:
     """Write a complete multi-instrument qlib provider."""
+    for qlib_symbol in frames:
+        _validate_qlib_symbol(qlib_symbol)
     calendar = build_calendar(frames)
     write_calendar(calendar, out_dir)
     write_instruments(frames, out_dir)
@@ -203,6 +233,9 @@ def write_provider(frames: Mapping[str, pd.DataFrame], out_dir: Path) -> None:
 
 def validate_provider(out_dir: Path, frames: Mapping[str, pd.DataFrame]) -> None:
     """Independently verify the on-disk provider contract before publication."""
+    for qlib_symbol in frames:
+        _validate_qlib_symbol(qlib_symbol)
+    expected_calendar = build_calendar(frames)
     calendar_path = out_dir / "calendars" / "day.txt"
     if not calendar_path.is_file():
         raise FileNotFoundError(f"missing provider calendar: {calendar_path}")
@@ -213,58 +246,87 @@ def validate_provider(out_dir: Path, frames: Mapping[str, pd.DataFrame]) -> None
         calendar = pd.DatetimeIndex(pd.to_datetime(calendar_lines))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid provider calendar: {calendar_path}") from exc
+    if not calendar.equals(expected_calendar):
+        raise ValueError(
+            f"{calendar_path}: calendar does not exactly match instrument frames"
+        )
 
     metadata_path = out_dir / "instruments" / "all.txt"
     if not metadata_path.is_file():
         raise FileNotFoundError(f"missing instrument metadata: {metadata_path}")
     metadata_lines = metadata_path.read_text().splitlines()
-    try:
-        metadata_symbols = {
-            fields[0]
-            for line in metadata_lines
-            if line.strip()
-            for fields in [line.split("\t")]
-            if len(fields) == 3
-        }
-    except IndexError as exc:  # Defensive clarity if metadata parsing changes.
-        raise ValueError(f"invalid instrument metadata: {metadata_path}") from exc
-    if len(metadata_symbols) != len([line for line in metadata_lines if line.strip()]):
-        raise ValueError(f"invalid or duplicate instrument metadata: {metadata_path}")
-
-    expected_symbols = set(frames)
-    if metadata_symbols != expected_symbols:
+    expected_metadata = [
+        f"{qlib_symbol}\t{frame.index[0]:%Y-%m-%d}\t{frame.index[-1]:%Y-%m-%d}"
+        for qlib_symbol, frame in sorted(frames.items())
+    ]
+    if metadata_lines != expected_metadata:
         raise ValueError(
-            f"instrument metadata symbol set mismatch at {metadata_path}: "
-            f"expected {sorted(expected_symbols)}, found {sorted(metadata_symbols)}"
+            f"{metadata_path}: instrument metadata does not exactly match frames"
         )
 
+    features_dir = out_dir / "features"
+    if not features_dir.is_dir():
+        raise FileNotFoundError(f"missing provider features directory: {features_dir}")
+    feature_entries = {entry.name: entry for entry in features_dir.iterdir()}
+    expected_symbols = set(frames)
+    missing_symbols = expected_symbols - set(feature_entries)
+    if missing_symbols:
+        missing_dir = features_dir / sorted(missing_symbols)[0]
+        raise FileNotFoundError(f"missing instrument feature directory: {missing_dir}")
+    if set(feature_entries) != expected_symbols or any(
+        not entry.is_dir() for entry in feature_entries.values()
+    ):
+        raise ValueError(
+            f"{features_dir}: unexpected or missing instrument feature directories"
+        )
+
+    expected_feature_names = {f"{field}.day.bin" for field in REQUIRED_FIELDS}
     for qlib_symbol, frame in frames.items():
-        try:
-            expected_header = float(calendar.get_loc(frame.index[0]))
-        except KeyError as exc:
+        instrument_dir = feature_entries[qlib_symbol]
+        instrument_entries = {
+            entry.name: entry for entry in instrument_dir.iterdir()
+        }
+        missing_features = expected_feature_names - set(instrument_entries)
+        if missing_features:
+            missing_path = instrument_dir / sorted(missing_features)[0]
+            raise FileNotFoundError(f"missing provider feature: {missing_path}")
+        if set(instrument_entries) != expected_feature_names or any(
+            not entry.is_file() for entry in instrument_entries.values()
+        ):
             raise ValueError(
-                f"{qlib_symbol} first date is absent from {calendar_path}"
-            ) from exc
+                f"{instrument_dir}: unexpected or missing required feature files"
+            )
+
+        start_pos = expected_calendar.searchsorted(frame.index[0])
+        end_pos = expected_calendar.searchsorted(frame.index[-1])
+        calendar_slice = expected_calendar[start_pos : end_pos + 1]
+        expected_length = len(calendar_slice) + 1
         for field in REQUIRED_FIELDS:
-            feature_path = out_dir / "features" / qlib_symbol / f"{field}.day.bin"
-            if not feature_path.is_file():
-                raise FileNotFoundError(f"missing provider feature: {feature_path}")
+            feature_path = instrument_entries[f"{field}.day.bin"]
             feature_size = feature_path.stat().st_size
             float_size = np.dtype("<f4").itemsize
-            if feature_size < float_size * 2:
-                raise ValueError(
-                    f"provider feature must contain header and data: {feature_path}"
-                )
             if feature_size % float_size:
                 raise ValueError(
                     f"invalid provider feature {feature_path}: "
                     "byte size is not aligned to float32 values"
                 )
             values = np.fromfile(feature_path, dtype="<f4")
-            if values[0] != expected_header:
+            if len(values) != expected_length:
+                raise ValueError(
+                    f"{feature_path}: feature length must be exactly "
+                    f"{expected_length} float32 values, found {len(values)}"
+                )
+            if values[0] != float(start_pos):
                 raise ValueError(
                     f"provider feature header mismatch at {feature_path}: "
-                    f"expected {expected_header}, found {values[0]}"
+                    f"expected {start_pos}, found {values[0]}"
+                )
+            expected_payload = (
+                frame[field].reindex(calendar_slice).astype(np.float32).to_numpy()
+            )
+            if not np.array_equal(values[1:], expected_payload, equal_nan=True):
+                raise ValueError(
+                    f"{feature_path}: feature payload does not exactly match frame"
                 )
 
 
@@ -282,7 +344,13 @@ def _remove_path(path: Path) -> None:
 def publish_provider(staging: Path, target: Path) -> None:
     """Atomically replace a provider, restoring the previous version on failure."""
     backup = target.parent / f".{target.name}.backup"
-    _remove_path(backup)
+    backup_exists = backup.exists() or backup.is_symlink()
+    target_exists = target.exists() or target.is_symlink()
+    if backup_exists and not target_exists:
+        _replace_path(backup, target)
+    elif backup_exists:
+        _remove_path(backup)
+
     had_target = target.exists() or target.is_symlink()
     if had_target:
         _replace_path(target, backup)
@@ -322,15 +390,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end", default=datetime.now().strftime("%Y%m%d"), help="End date YYYYMMDD")
     parser.add_argument("--adjust", default="qfq", choices=["qfq", "hfq", ""], help="Price adjustment (default: qfq)")
     parser.add_argument("--out-dir", default=str(DATA_DIR), help="Output directory")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if (args.symbol is None) != (args.qlib_symbol is None):
+        parser.error("--symbol and --qlib-symbol must be supplied together")
+    return args
 
 
 def selected_instruments(args: argparse.Namespace) -> tuple[InstrumentSpec, ...]:
     if (args.symbol is None) != (args.qlib_symbol is None):
         raise ValueError("--symbol and --qlib-symbol must be supplied together")
     if args.symbol is not None:
-        return (InstrumentSpec(args.symbol, args.qlib_symbol, "Custom ETF"),)
-    return DEFAULT_INSTRUMENTS
+        specs = (InstrumentSpec(args.symbol, args.qlib_symbol, "Custom ETF"),)
+    else:
+        specs = DEFAULT_INSTRUMENTS
+    return validate_instrument_specs(specs)
 
 
 def main() -> None:
