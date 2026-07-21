@@ -111,7 +111,8 @@ def write_features(df: pd.DataFrame, qlib_symbol: str, calendar: pd.DatetimeInde
         # Align to calendar slice; NaN for any gap (suspended trading, etc.)
         arr = df[col].reindex(cal_slice).values.astype(np.float32)
         path = feat_dir / f"{col}.day.bin"
-        arr.tofile(str(path))
+        # Qlib stores the calendar start index as the first float in each feature file.
+        np.hstack([start_pos, arr]).astype("<f4").tofile(str(path))
         nan_count = int(np.isnan(arr).sum())
         print(f"[feature] {path.name}  {len(arr)} values  ({nan_count} NaN)")
 

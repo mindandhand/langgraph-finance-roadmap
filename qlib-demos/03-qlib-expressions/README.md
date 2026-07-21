@@ -9,7 +9,7 @@ graph TD
     A["provider 基础字段: $close / $volume"] --> B["Qlib expression strings"]
     B --> C["D.features 解析表达式"]
     C --> D["时间序列算子: Ref / Mean / Std"]
-    C --> E["横截面算子: Rank"]
+    C --> E["滚动排序算子: Rank"]
     D --> F["factor(datetime, instrument)"]
     E --> F
 ```
@@ -40,7 +40,7 @@ fields = [
     "Mean($close, 20) / $close",
     "Std($close / Ref($close, 1) - 1, 20)",
     "Mean($volume, 5) / Mean($volume, 20)",
-    "Rank($close / Ref($close, 20) - 1)",
+    "Rank($close / Ref($close, 20) - 1, 20)",
 ]
 ```
 
@@ -58,7 +58,9 @@ fields = [
 
 ### `Rank`
 
-`Rank(...)` 是横截面算子，语义是同一天不同股票之间的相对排名。自动因子评估里的 RankIC 也依赖这种横截面比较。
+`Rank(feature, N)` 是时间序列滚动排序算子，表示当前值在该标的最近 `N` 个周期中的百分位。本例使用 `N=20`，计算 20 日动量在自身最近 20 个交易日中的相对位置。
+
+Qlib 0.9.7 的表达式引擎没有 `CSRank` 算子。横截面排名应在 `D.features` 返回数据后按 `datetime` 分组计算；第 6 节的 RankIC 正是这样实现的。
 
 ### `load_features(fields, names)`
 
@@ -68,7 +70,7 @@ fields = [
 
 1. 初始化 Qlib provider。
 2. 把表达式列表传给 `D.features`。
-3. Qlib 根据 provider 字段计算 Ref、Mean、Std、Rank。
+3. Qlib 根据 provider 字段计算 Ref、Mean、Std 和带窗口参数的 Rank。
 4. 返回 `datetime, instrument` MultiIndex DataFrame。
 5. 脚本丢掉空值并打印前几行。
 
@@ -81,7 +83,8 @@ QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python qlib_expressions.py
 ## 常见坑
 
 - 把 `Ref($close, -5)` 写进 feature，造成未来函数。
-- 用单标的观察 `Rank`，横截面意义不足。
+- 忘记给 `Rank(feature, N)` 传窗口参数 `N`。
+- 把表达式里的滚动 `Rank` 误当成横截面排名。
 - 日期范围太短，20 日窗口特征前期会为空。
 
 ## 下一步

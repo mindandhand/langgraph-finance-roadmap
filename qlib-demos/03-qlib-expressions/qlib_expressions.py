@@ -14,7 +14,7 @@ def main() -> None:
         "Mean($close, 20) / $close",
         "Std($close / Ref($close, 1) - 1, 20)",
         "Mean($volume, 5) / Mean($volume, 20)",
-        "Rank($close / Ref($close, 20) - 1)",
+        "Rank($close / Ref($close, 20) - 1, 20)",
     ]
     names = [
         "close",
@@ -23,7 +23,7 @@ def main() -> None:
         "ma20_to_close",
         "vol20",
         "volume_ratio_5_20",
-        "cross_section_mom20_rank",
+        "rolling_mom20_rank",
     ]
 
     print_context("Qlib expression engine")
