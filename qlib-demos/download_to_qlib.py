@@ -26,8 +26,10 @@ To use the data in qlib:
 """
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 import pandas as pd
@@ -38,6 +40,22 @@ import pandas as pd
 SYMBOL = "510300"
 QLIB_SYMBOL = "sh510300"
 DATA_DIR = Path(__file__).parent / "qlib-data"  # qlib-demos/qlib-data
+
+
+@dataclass(frozen=True)
+class InstrumentSpec:
+    source_symbol: str
+    qlib_symbol: str
+    name: str
+
+
+DEFAULT_INSTRUMENTS = (
+    InstrumentSpec("510050", "sh510050", "上证50 ETF"),
+    InstrumentSpec("510300", "sh510300", "沪深300 ETF"),
+    InstrumentSpec("510500", "sh510500", "中证500 ETF"),
+    InstrumentSpec("159915", "sz159915", "创业板 ETF"),
+    InstrumentSpec("588000", "sh588000", "科创50 ETF"),
+)
 
 COLUMN_MAP = {
     "日期": "date",
@@ -82,6 +100,16 @@ def download(symbol: str, start: str, end: str, adjust: str = "qfq") -> pd.DataF
 # ---------------------------------------------------------------------------
 # Write qlib binary format
 # ---------------------------------------------------------------------------
+def build_calendar(frames: Mapping[str, pd.DataFrame]) -> pd.DatetimeIndex:
+    if not frames:
+        raise ValueError("cannot build a calendar without instrument frames")
+
+    calendar = pd.DatetimeIndex([])
+    for frame in frames.values():
+        calendar = calendar.union(frame.index)
+    return calendar.sort_values()
+
+
 def write_calendar(dates: pd.DatetimeIndex, out_dir: Path) -> None:
     path = out_dir / "calendars" / "day.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,10 +117,14 @@ def write_calendar(dates: pd.DatetimeIndex, out_dir: Path) -> None:
     print(f"[calendar] {len(dates)} days → {path}")
 
 
-def write_instruments(qlib_symbol: str, start: str, end: str, out_dir: Path) -> None:
+def write_instruments(frames: Mapping[str, pd.DataFrame], out_dir: Path) -> None:
     path = out_dir / "instruments" / "all.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{qlib_symbol}\t{start}\t{end}\n")
+    lines = [
+        f"{qlib_symbol}\t{frame.index[0]:%Y-%m-%d}\t{frame.index[-1]:%Y-%m-%d}"
+        for qlib_symbol, frame in sorted(frames.items())
+    ]
+    path.write_text("\n".join(lines) + "\n")
     print(f"[instruments] {path}")
 
 
@@ -137,12 +169,13 @@ def main() -> None:
 
     df = download(args.symbol, args.start, args.end, args.adjust)
 
-    calendar = df.index  # use actual trading days as the calendar
+    frames = {args.qlib_symbol: df}
+    calendar = build_calendar(frames)
     start_str = df.index[0].strftime("%Y-%m-%d")
     end_str = df.index[-1].strftime("%Y-%m-%d")
 
     write_calendar(calendar, out_dir)
-    write_instruments(args.qlib_symbol, start_str, end_str, out_dir)
+    write_instruments(frames, out_dir)
     write_features(df, args.qlib_symbol, calendar, out_dir)
 
     print(f"\n✓ Done — data saved to: {out_dir.resolve()}")
