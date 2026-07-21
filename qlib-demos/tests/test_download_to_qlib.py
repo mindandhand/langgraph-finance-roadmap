@@ -1,7 +1,9 @@
+import argparse
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -113,6 +115,235 @@ class MultiEtfProviderModelTest(unittest.TestCase):
         np.testing.assert_array_equal(
             np.array([1.0, 20.0, 21.0], dtype=np.float32), values
         )
+
+
+class SafeProviderPublicationTest(unittest.TestCase):
+    @staticmethod
+    def make_frame(dates: list[str], offset: float = 0.0) -> pd.DataFrame:
+        row_count = len(dates)
+        values = np.arange(row_count, dtype=np.float32) + offset
+        return pd.DataFrame(
+            {
+                "open": values + 1,
+                "close": values + 2,
+                "high": values + 3,
+                "low": values + 0.5,
+                "volume": values + 100,
+                "amount": values + 1000,
+                "factor": np.ones(row_count, dtype=np.float32),
+            },
+            index=pd.to_datetime(dates),
+        )
+
+    def setUp(self) -> None:
+        self.spec = download_to_qlib.InstrumentSpec(
+            "510050", "sh510050", "上证50 ETF"
+        )
+
+    def test_validate_frame_accepts_complete_frame(self) -> None:
+        download_to_qlib.validate_frame(
+            self.make_frame(["2024-01-01", "2024-01-02"]), self.spec
+        )
+
+    def test_validate_frame_rejects_empty_frame_and_names_symbol(self) -> None:
+        frame = self.make_frame([])
+
+        with self.assertRaisesRegex(ValueError, "sh510050.*empty"):
+            download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_validate_frame_rejects_missing_fields_and_names_them(self) -> None:
+        frame = self.make_frame(["2024-01-01"]).drop(
+            columns=["amount", "factor"]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "sh510050.*amount.*factor"
+        ):
+            download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_validate_frame_rejects_non_datetime_index(self) -> None:
+        frame = self.make_frame(["2024-01-01"])
+        frame.index = ["2024-01-01"]
+
+        with self.assertRaisesRegex(ValueError, "sh510050.*DatetimeIndex"):
+            download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_validate_frame_rejects_duplicate_dates(self) -> None:
+        frame = self.make_frame(["2024-01-01", "2024-01-01"])
+
+        with self.assertRaisesRegex(ValueError, "sh510050.*duplicate"):
+            download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_validate_frame_rejects_non_monotonic_dates(self) -> None:
+        frame = self.make_frame(["2024-01-02", "2024-01-01"])
+
+        with self.assertRaisesRegex(ValueError, "sh510050.*monotonic"):
+            download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_write_and_validate_complete_multi_instrument_provider(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(
+                ["2024-01-01", "2024-01-02"], 10
+            ),
+            "sh588000": self.make_frame(
+                ["2024-01-02", "2024-01-03"], 20
+            ),
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            download_to_qlib.validate_provider(out_dir, frames)
+
+            calendar = (
+                out_dir / "calendars/day.txt"
+            ).read_text().splitlines()
+            metadata = (
+                out_dir / "instruments/all.txt"
+            ).read_text().splitlines()
+            feature_values = np.fromfile(
+                out_dir / "features/sh588000/open.day.bin", dtype="<f4"
+            )
+
+        self.assertEqual(
+            ["2024-01-01", "2024-01-02", "2024-01-03"], calendar
+        )
+        self.assertEqual(
+            {"sh510050", "sh588000"},
+            {line.split("\t")[0] for line in metadata},
+        )
+        self.assertEqual(1.0, feature_values[0])
+
+    def test_validate_provider_rejects_missing_feature_and_names_path(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"])
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            missing = out_dir / "features/sh510050/amount.day.bin"
+            missing.unlink()
+
+            with self.assertRaisesRegex(
+                FileNotFoundError, "amount[.]day[.]bin"
+            ):
+                download_to_qlib.validate_provider(out_dir, frames)
+
+    def test_validate_provider_names_misaligned_feature_path(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"])
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            corrupt = out_dir / "features/sh510050/open.day.bin"
+            with corrupt.open("ab") as feature_file:
+                feature_file.write(b"x")
+
+            with self.assertRaisesRegex(
+                ValueError, "open[.]day[.]bin.*float32"
+            ):
+                download_to_qlib.validate_provider(out_dir, frames)
+
+    def test_publish_provider_restores_original_target_on_swap_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            target = parent / "qlib-data"
+            staging = parent / "staging"
+            target.mkdir()
+            staging.mkdir()
+            (target / "marker.txt").write_text("original")
+            (staging / "marker.txt").write_text("replacement")
+
+            def replace_except_staging(source: Path, destination: Path) -> None:
+                if source == staging:
+                    raise OSError("simulated staging swap failure")
+                source.replace(destination)
+
+            with mock.patch.object(
+                download_to_qlib,
+                "_replace_path",
+                side_effect=replace_except_staging,
+            ):
+                with self.assertRaisesRegex(OSError, "staging swap failure"):
+                    download_to_qlib.publish_provider(staging, target)
+
+            self.assertEqual("original", (target / "marker.txt").read_text())
+            self.assertFalse((parent / ".qlib-data.backup").exists())
+
+    def test_selected_instruments_uses_defaults_without_override(self) -> None:
+        args = argparse.Namespace(symbol=None, qlib_symbol=None)
+
+        self.assertEqual(
+            download_to_qlib.DEFAULT_INSTRUMENTS,
+            download_to_qlib.selected_instruments(args),
+        )
+
+    def test_selected_instruments_builds_paired_override(self) -> None:
+        args = argparse.Namespace(symbol="123456", qlib_symbol="sz123456")
+
+        self.assertEqual(
+            (
+                download_to_qlib.InstrumentSpec(
+                    "123456", "sz123456", "Custom ETF"
+                ),
+            ),
+            download_to_qlib.selected_instruments(args),
+        )
+
+    def test_selected_instruments_rejects_incomplete_override_pair(self) -> None:
+        for args in (
+            argparse.Namespace(symbol="510300", qlib_symbol=None),
+            argparse.Namespace(symbol=None, qlib_symbol="sh510300"),
+        ):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(
+                    ValueError, "--symbol.*--qlib-symbol"
+                ):
+                    download_to_qlib.selected_instruments(args)
+
+    def test_download_all_collects_every_validated_frame(self) -> None:
+        specs = download_to_qlib.DEFAULT_INSTRUMENTS[:2]
+        downloaded = [
+            self.make_frame(["2024-01-01"], 10),
+            self.make_frame(["2024-01-02"], 20),
+        ]
+
+        with mock.patch.object(
+            download_to_qlib, "download", side_effect=downloaded
+        ) as download_mock:
+            frames = download_to_qlib.download_all(
+                specs, "20240101", "20240131", "qfq"
+            )
+
+        self.assertEqual([spec.qlib_symbol for spec in specs], list(frames))
+        self.assertEqual(
+            [
+                mock.call("510050", "20240101", "20240131", "qfq"),
+                mock.call("510300", "20240101", "20240131", "qfq"),
+            ],
+            download_mock.call_args_list,
+        )
+
+    def test_download_all_names_failed_instrument_and_preserves_cause(self) -> None:
+        specs = download_to_qlib.DEFAULT_INSTRUMENTS[:2]
+        cause = ValueError("network returned no rows")
+
+        with mock.patch.object(
+            download_to_qlib,
+            "download",
+            side_effect=[self.make_frame(["2024-01-01"]), cause],
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "sh510300.*510300"
+            ) as raised:
+                download_to_qlib.download_all(
+                    specs, "20240101", "20240131", "qfq"
+                )
+
+        self.assertIs(cause, raised.exception.__cause__)
 
 
 if __name__ == "__main__":
