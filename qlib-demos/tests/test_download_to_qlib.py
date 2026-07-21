@@ -26,10 +26,19 @@ class MultiEtfProviderModelTest(unittest.TestCase):
             ),
         }
 
-    def test_default_instruments_have_expected_symbols_in_order(self) -> None:
+    def test_default_instruments_have_expected_values_in_order(self) -> None:
         self.assertEqual(
-            ["sh510050", "sh510300", "sh510500", "sz159915", "sh588000"],
-            [spec.qlib_symbol for spec in download_to_qlib.DEFAULT_INSTRUMENTS],
+            [
+                ("510050", "sh510050", "上证50 ETF"),
+                ("510300", "sh510300", "沪深300 ETF"),
+                ("510500", "sh510500", "中证500 ETF"),
+                ("159915", "sz159915", "创业板 ETF"),
+                ("588000", "sh588000", "科创50 ETF"),
+            ],
+            [
+                (spec.source_symbol, spec.qlib_symbol, spec.name)
+                for spec in download_to_qlib.DEFAULT_INSTRUMENTS
+            ],
         )
 
     def test_build_calendar_returns_sorted_union(self) -> None:
@@ -43,6 +52,20 @@ class MultiEtfProviderModelTest(unittest.TestCase):
     def test_build_calendar_rejects_empty_mapping(self) -> None:
         with self.assertRaises(ValueError):
             download_to_qlib.build_calendar({})
+
+    def test_build_calendar_sorts_and_removes_duplicates_within_frame(self) -> None:
+        frame = pd.DataFrame(
+            {"close": np.array([12.0, 10.0, 11.0], dtype=np.float32)},
+            index=pd.to_datetime(
+                ["2024-01-02", "2024-01-01", "2024-01-02"]
+            ),
+        )
+
+        calendar = download_to_qlib.build_calendar({"sh510050": frame})
+
+        pd.testing.assert_index_equal(
+            pd.to_datetime(["2024-01-01", "2024-01-02"]), calendar
+        )
 
     def test_write_instruments_sorts_symbols_and_uses_frame_dates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -107,7 +107,7 @@ def build_calendar(frames: Mapping[str, pd.DataFrame]) -> pd.DatetimeIndex:
     calendar = pd.DatetimeIndex([])
     for frame in frames.values():
         calendar = calendar.union(frame.index)
-    return calendar.sort_values()
+    return calendar.drop_duplicates().sort_values()
 
 
 def write_calendar(dates: pd.DatetimeIndex, out_dir: Path) -> None:
