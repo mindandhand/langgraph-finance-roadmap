@@ -67,6 +67,19 @@ class MultiEtfProviderModelTest(unittest.TestCase):
             pd.to_datetime(["2024-01-01", "2024-01-02"]), calendar
         )
 
+    def test_build_calendar_normalizes_date_like_string_index(self) -> None:
+        frame = pd.DataFrame(
+            {"close": np.array([11.0, 10.0], dtype=np.float32)},
+            index=["2024-01-02", "2024-01-01"],
+        )
+
+        calendar = download_to_qlib.build_calendar({"sh510050": frame})
+
+        self.assertIsInstance(calendar, pd.DatetimeIndex)
+        pd.testing.assert_index_equal(
+            pd.to_datetime(["2024-01-01", "2024-01-02"]), calendar
+        )
+
     def test_write_instruments_sorts_symbols_and_uses_frame_dates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             download_to_qlib.write_instruments(self.frames, Path(directory))
