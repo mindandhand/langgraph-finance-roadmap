@@ -3,7 +3,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qlib_demo_common import import_qlib, init_qlib, print_context, start_time, end_time
+from qlib_demo_common import (
+    end_time,
+    import_qlib,
+    init_qlib,
+    instruments,
+    print_context,
+    start_time,
+)
 
 
 def main() -> None:
@@ -18,6 +25,31 @@ def main() -> None:
     print("calendar rows:", len(calendar))
     if len(calendar):
         print("calendar range:", calendar[0], "to", calendar[-1])
+
+    requested_instruments = instruments()
+    if isinstance(requested_instruments, str):
+        print(
+            "feature instruments: market selector",
+            requested_instruments,
+            "(feature query skipped)",
+        )
+    else:
+        close = D.features(
+            requested_instruments,
+            ["$close"],
+            start_time=start_time(),
+            end_time=end_time(),
+            freq="day",
+        )
+        returned = set(close.index.get_level_values("instrument"))
+        available_instruments = [
+            symbol
+            for symbol in requested_instruments
+            if symbol in returned
+        ]
+        print("feature instruments:", available_instruments)
+        print("latest close by instrument:")
+        print(close.groupby(level="instrument").tail(1))
     print("provider ready:", provider_uri)
 
 

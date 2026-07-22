@@ -12,7 +12,7 @@ Output layout (relative to qlib-demos/):
         ├── high.day.bin
         ├── low.day.bin
         ├── volume.day.bin
-        ├── amount.day.bin
+        ├── amount.day.bin  # optional; written only when supplied by the source
         └── factor.day.bin
 
 Usage:
@@ -33,6 +33,7 @@ import argparse
 import re
 import shutil
 import tempfile
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -71,8 +72,9 @@ COLUMN_MAP = {
     "成交量": "volume",
     "成交额": "amount",
 }
-REQUIRED_FIELDS = ("open", "close", "high", "low", "volume", "amount", "factor")
-FEATURES = list(REQUIRED_FIELDS)
+FEATURES = ("open", "close", "high", "low", "volume", "amount", "factor")
+REQUIRED_FIELDS = ("open", "close", "high", "low", "volume", "factor")
+OPTIONAL_FIELDS = ("amount",)
 QLIB_SYMBOL_PATTERN = re.compile(r"(?:sh|sz)\d{6}\Z")
 SOURCE_SYMBOL_PATTERN = re.compile(r"\d{6}\Z")
 
@@ -80,29 +82,82 @@ SOURCE_SYMBOL_PATTERN = re.compile(r"\d{6}\Z")
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
-def download(symbol: str, start: str, end: str, adjust: str = "qfq") -> pd.DataFrame:
+def _normalize_download(
+    raw: pd.DataFrame,
+    start: str,
+    end: str,
+    column_map: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    """Normalize an AkShare ETF response without inventing optional fields."""
+    if raw.empty:
+        raise ValueError("data source returned no ETF rows")
+
+    frame = raw.rename(columns=column_map or {}).copy()
+    if "date" not in frame.columns:
+        raise ValueError(
+            f"data source response is missing date; got {list(raw.columns)}"
+        )
+    frame["date"] = pd.to_datetime(frame["date"])
+    start_date = pd.Timestamp(start)
+    end_date = pd.Timestamp(end)
+    frame = frame.loc[frame["date"].between(start_date, end_date)]
+    frame = frame.set_index("date").sort_index()
+    if frame.empty:
+        raise ValueError("data source returned no ETF rows in requested range")
+
+    frame["factor"] = 1.0
+    available_features = [field for field in FEATURES if field in frame.columns]
+    return frame[available_features].astype(np.float32)
+
+
+def download(
+    spec: InstrumentSpec,
+    start: str,
+    end: str,
+    adjust: str = "qfq",
+) -> pd.DataFrame:
     import akshare as ak  # lazy import so the script loads without akshare for --help
 
+    validated_spec = validate_instrument_specs((spec,))[0]
+    symbol = validated_spec.source_symbol
+    qlib_symbol = validated_spec.qlib_symbol
     print(f"[download] {symbol}  {start} → {end}  adjust={adjust}")
-    df = ak.fund_etf_hist_em(
-        symbol=symbol,
-        period="daily",
-        start_date=start,
-        end_date=end,
-        adjust=adjust,
+
+    try:
+        raw = ak.fund_etf_hist_em(
+            symbol=symbol,
+            period="daily",
+            start_date=start,
+            end_date=end,
+            adjust=adjust,
+        )
+        frame = _normalize_download(raw, start, end, COLUMN_MAP)
+        source = "EastMoney"
+    except Exception as eastmoney_error:
+        adjustment_label = adjust or "unadjusted"
+        warnings.warn(
+            f"{qlib_symbol}: EastMoney failed; using Sina ETF history. "
+            "Sina has no adjustment selector, so fallback values are used "
+            "as returned and are not guaranteed to match the requested "
+            f"{adjustment_label} price semantics.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        try:
+            raw = ak.fund_etf_hist_sina(symbol=qlib_symbol)
+            frame = _normalize_download(raw, start, end)
+            source = "Sina"
+        except Exception as sina_error:
+            raise RuntimeError(
+                f"{qlib_symbol} (source {symbol}): EastMoney failed "
+                f"({eastmoney_error!r}) and Sina fallback failed"
+            ) from sina_error
+
+    print(
+        f"[download] source={source}  {len(frame)} rows  "
+        f"{frame.index[0].date()} → {frame.index[-1].date()}"
     )
-    df = df.rename(columns=COLUMN_MAP)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.set_index("date").sort_index()
-
-    # qfq data already carries the price adjustment; set factor = 1.0
-    # If you need true unadjusted + factor, download both and divide.
-    df["factor"] = 1.0
-
-    keep = [c for c in FEATURES if c in df.columns]
-    df = df[keep].astype(np.float32)
-    print(f"[download] {len(df)} rows  {df.index[0].date()} → {df.index[-1].date()}")
-    return df
+    return frame
 
 
 def validate_frame(frame: pd.DataFrame, spec: InstrumentSpec) -> None:
@@ -157,7 +212,7 @@ def download_all(
     frames: dict[str, pd.DataFrame] = {}
     for spec in validated_specs:
         try:
-            frame = download(spec.source_symbol, start, end, adjust)
+            frame = download(spec, start, end, adjust)
             validate_frame(frame, spec)
         except Exception as exc:
             raise RuntimeError(
@@ -280,19 +335,34 @@ def validate_provider(out_dir: Path, frames: Mapping[str, pd.DataFrame]) -> None
             f"{features_dir}: unexpected or missing instrument feature directories"
         )
 
-    expected_feature_names = {f"{field}.day.bin" for field in REQUIRED_FIELDS}
     for qlib_symbol, frame in frames.items():
         instrument_dir = feature_entries[qlib_symbol]
         instrument_entries = {
             entry.name: entry for entry in instrument_dir.iterdir()
         }
+        missing_core_fields = set(REQUIRED_FIELDS) - set(frame.columns)
+        if missing_core_fields:
+            raise ValueError(
+                f"{qlib_symbol} frame is missing required fields: "
+                f"{', '.join(sorted(missing_core_fields))}"
+            )
+        expected_fields = tuple(
+            field for field in FEATURES if field in frame.columns
+        )
+        expected_feature_names = {
+            f"{field}.day.bin" for field in expected_fields
+        }
         missing_features = expected_feature_names - set(instrument_entries)
         if missing_features:
             missing_path = instrument_dir / sorted(missing_features)[0]
             raise FileNotFoundError(f"missing provider feature: {missing_path}")
-        if set(instrument_entries) != expected_feature_names or any(
-            not entry.is_file() for entry in instrument_entries.values()
-        ):
+        unexpected_features = set(instrument_entries) - expected_feature_names
+        if unexpected_features:
+            raise ValueError(
+                f"{instrument_dir}: unexpected feature files: "
+                f"{', '.join(sorted(unexpected_features))}"
+            )
+        if any(not entry.is_file() for entry in instrument_entries.values()):
             raise ValueError(
                 f"{instrument_dir}: unexpected or missing required feature files"
             )
@@ -301,7 +371,7 @@ def validate_provider(out_dir: Path, frames: Mapping[str, pd.DataFrame]) -> None
         end_pos = expected_calendar.searchsorted(frame.index[-1])
         calendar_slice = expected_calendar[start_pos : end_pos + 1]
         expected_length = len(calendar_slice) + 1
-        for field in REQUIRED_FIELDS:
+        for field in expected_fields:
             feature_path = instrument_entries[f"{field}.day.bin"]
             feature_size = feature_path.stat().st_size
             float_size = np.dtype("<f4").itemsize

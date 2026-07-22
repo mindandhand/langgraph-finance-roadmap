@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,99 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "qlib-demos"))
 
 import download_to_qlib
+
+
+class BundledMultiEtfProviderTest(unittest.TestCase):
+    provider_dir = ROOT / "qlib-demos/qlib-data"
+
+    @property
+    def expected_symbols(self) -> list[str]:
+        return sorted(
+            spec.qlib_symbol
+            for spec in download_to_qlib.DEFAULT_INSTRUMENTS
+        )
+
+    def read_metadata(self) -> list[tuple[str, str, str]]:
+        return [
+            tuple(line.split("\t"))
+            for line in (
+                self.provider_dir / "instruments/all.txt"
+            ).read_text().splitlines()
+        ]
+
+    def test_bundled_provider_contains_exactly_default_instruments(self) -> None:
+        metadata_symbols = sorted(row[0] for row in self.read_metadata())
+        feature_symbols = sorted(
+            path.name
+            for path in (self.provider_dir / "features").iterdir()
+            if path.is_dir()
+        )
+
+        self.assertEqual(self.expected_symbols, metadata_symbols)
+        self.assertEqual(self.expected_symbols, feature_symbols)
+
+    def test_bundled_provider_files_and_binary_contract_are_valid(self) -> None:
+        calendar_path = self.provider_dir / "calendars/day.txt"
+        calendar_lines = calendar_path.read_text().splitlines()
+        calendar = pd.DatetimeIndex(pd.to_datetime(calendar_lines))
+        self.assertTrue(calendar.is_monotonic_increasing)
+        self.assertFalse(calendar.has_duplicates)
+
+        required_feature_names = {
+            f"{field}.day.bin"
+            for field in download_to_qlib.REQUIRED_FIELDS
+        }
+        optional_feature_names = {
+            f"{field}.day.bin"
+            for field in download_to_qlib.OPTIONAL_FIELDS
+        }
+        reconstructed_frames: dict[str, pd.DataFrame] = {}
+        for symbol, start_text, end_text in self.read_metadata():
+            instrument_dir = self.provider_dir / "features" / symbol
+            feature_names = {
+                path.name for path in instrument_dir.iterdir()
+            }
+            self.assertEqual(
+                {
+                    f"{field}.day.bin"
+                    for field in download_to_qlib.FEATURES
+                },
+                feature_names,
+                (symbol, feature_names),
+            )
+            self.assertTrue(
+                required_feature_names.issubset(feature_names),
+                (symbol, feature_names),
+            )
+            self.assertFalse(
+                feature_names - required_feature_names - optional_feature_names,
+                (symbol, feature_names),
+            )
+
+            start = pd.Timestamp(start_text)
+            end = pd.Timestamp(end_text)
+            start_pos = int(calendar.searchsorted(start))
+            end_pos = int(calendar.searchsorted(end))
+            self.assertEqual(start, calendar[start_pos])
+            self.assertEqual(end, calendar[end_pos])
+            calendar_slice = calendar[start_pos : end_pos + 1]
+
+            columns: dict[str, np.ndarray] = {}
+            for field in download_to_qlib.FEATURES:
+                feature_path = instrument_dir / f"{field}.day.bin"
+                if not feature_path.is_file():
+                    continue
+                values = np.fromfile(feature_path, dtype="<f4")
+                self.assertEqual(float(start_pos), values[0])
+                self.assertEqual(len(calendar_slice) + 1, len(values))
+                columns[field] = values[1:]
+            reconstructed_frames[symbol] = pd.DataFrame(
+                columns, index=calendar_slice
+            )
+
+        download_to_qlib.validate_provider(
+            self.provider_dir, reconstructed_frames
+        )
 
 
 class SharedInstrumentEnvironmentTest(unittest.TestCase):
@@ -71,6 +165,58 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
         )
 
         self.assertEqual("", result.stdout)
+
+    def test_environment_demo_prints_actual_default_feature_instruments(self) -> None:
+        environment = os.environ.copy()
+        environment.pop("QLIB_INSTRUMENTS", None)
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(
+                    ROOT
+                    / "qlib-demos/01-environment-and-data/run.sh"
+                ),
+            ],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "feature instruments: "
+            "['sh510050', 'sh510300', 'sh510500', "
+            "'sz159915', 'sh588000']",
+            result.stdout,
+        )
+
+    def test_environment_demo_preserves_explicit_empty_override(self) -> None:
+        environment = os.environ.copy()
+        environment["QLIB_INSTRUMENTS"] = ""
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(
+                    ROOT
+                    / "qlib-demos/01-environment-and-data/run.sh"
+                ),
+            ],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("instruments: csi300", result.stdout)
+        self.assertIn(
+            "feature instruments: market selector csi300 "
+            "(feature query skipped)",
+            result.stdout,
+        )
 
     def test_all_run_scripts_source_shared_environment(self) -> None:
         run_scripts = sorted((ROOT / "qlib-demos").glob("*/run.sh"))
@@ -189,23 +335,163 @@ class MultiEtfProviderModelTest(unittest.TestCase):
         )
 
 
-class SafeProviderPublicationTest(unittest.TestCase):
+class EtfDownloadFallbackTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.spec = download_to_qlib.InstrumentSpec(
+            "510050", "sh510050", "上证50 ETF"
+        )
+
     @staticmethod
-    def make_frame(dates: list[str], offset: float = 0.0) -> pd.DataFrame:
-        row_count = len(dates)
-        values = np.arange(row_count, dtype=np.float32) + offset
+    def eastmoney_frame() -> pd.DataFrame:
         return pd.DataFrame(
             {
-                "open": values + 1,
-                "close": values + 2,
-                "high": values + 3,
-                "low": values + 0.5,
-                "volume": values + 100,
-                "amount": values + 1000,
-                "factor": np.ones(row_count, dtype=np.float32),
-            },
-            index=pd.to_datetime(dates),
+                "日期": ["2024-01-02", "2024-01-03"],
+                "开盘": [10.0, 11.0],
+                "收盘": [10.5, 11.5],
+                "最高": [11.0, 12.0],
+                "最低": [9.5, 10.5],
+                "成交量": [100.0, 110.0],
+                "成交额": [1000.0, 1200.0],
+            }
         )
+
+    @staticmethod
+    def sina_frame() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "date": ["2024-01-01", "2024-01-02", "2024-01-03"],
+                "open": [9.0, 10.0, 11.0],
+                "high": [10.0, 11.0, 12.0],
+                "low": [8.5, 9.5, 10.5],
+                "close": [9.5, 10.5, 11.5],
+                "volume": [90.0, 100.0, 110.0],
+            }
+        )
+
+    @staticmethod
+    def akshare_mock() -> mock.Mock:
+        return mock.Mock(name="akshare")
+
+    def test_eastmoney_success_keeps_amount_and_does_not_call_sina(self) -> None:
+        akshare = self.akshare_mock()
+        akshare.fund_etf_hist_em.return_value = self.eastmoney_frame()
+
+        with mock.patch.dict(sys.modules, {"akshare": akshare}):
+            frame = download_to_qlib.download(
+                self.spec, "20240101", "20240103", "qfq"
+            )
+
+        akshare.fund_etf_hist_em.assert_called_once_with(
+            symbol="510050",
+            period="daily",
+            start_date="20240101",
+            end_date="20240103",
+            adjust="qfq",
+        )
+        akshare.fund_etf_hist_sina.assert_not_called()
+        self.assertEqual(list(download_to_qlib.FEATURES), list(frame.columns))
+        self.assertEqual(np.dtype("float32"), frame["amount"].dtype)
+
+    def test_eastmoney_failure_uses_exact_sina_symbol_without_amount(self) -> None:
+        akshare = self.akshare_mock()
+        akshare.fund_etf_hist_em.side_effect = OSError("EastMoney offline")
+        akshare.fund_etf_hist_sina.return_value = self.sina_frame()
+
+        with mock.patch.dict(sys.modules, {"akshare": akshare}):
+            with self.assertWarnsRegex(
+                RuntimeWarning, "Sina.*not guaranteed.*qfq.*semantics"
+            ):
+                frame = download_to_qlib.download(
+                    self.spec, "20240102", "20240103", "qfq"
+                )
+
+        akshare.fund_etf_hist_sina.assert_called_once_with(symbol="sh510050")
+        pd.testing.assert_index_equal(
+            pd.DatetimeIndex(
+                pd.to_datetime(["2024-01-02", "2024-01-03"]), name="date"
+            ),
+            frame.index,
+        )
+        self.assertEqual(
+            ["open", "close", "high", "low", "volume", "factor"],
+            list(frame.columns),
+        )
+        self.assertNotIn("amount", frame.columns)
+        np.testing.assert_array_equal(
+            np.ones(2, dtype=np.float32), frame["factor"].to_numpy()
+        )
+        self.assertTrue(
+            all(dtype == np.dtype("float32") for dtype in frame.dtypes)
+        )
+
+    def test_both_sources_fail_with_instrument_specific_chain(self) -> None:
+        akshare = self.akshare_mock()
+        eastmoney_error = OSError("EastMoney offline")
+        sina_error = OSError("Sina offline")
+        akshare.fund_etf_hist_em.side_effect = eastmoney_error
+        akshare.fund_etf_hist_sina.side_effect = sina_error
+
+        with mock.patch.dict(sys.modules, {"akshare": akshare}):
+            with self.assertWarns(RuntimeWarning):
+                with self.assertRaisesRegex(
+                    RuntimeError, "sh510050.*510050"
+                ) as raised:
+                    download_to_qlib.download_all(
+                        (self.spec,), "20240101", "20240103", "qfq"
+                    )
+
+        fallback_error = raised.exception.__cause__
+        self.assertIsInstance(fallback_error, RuntimeError)
+        self.assertRegex(str(fallback_error), "sh510050.*EastMoney.*Sina")
+        self.assertIs(sina_error, fallback_error.__cause__)
+
+    def test_all_defaults_route_to_exact_exchange_qualified_sina_symbols(self) -> None:
+        akshare = self.akshare_mock()
+        akshare.fund_etf_hist_em.side_effect = OSError("EastMoney offline")
+        akshare.fund_etf_hist_sina.return_value = self.sina_frame()
+
+        with mock.patch.dict(sys.modules, {"akshare": akshare}):
+            with mock.patch("warnings.warn"):
+                frames = download_to_qlib.download_all(
+                    download_to_qlib.DEFAULT_INSTRUMENTS,
+                    "20240101",
+                    "20240103",
+                    "qfq",
+                )
+
+        self.assertEqual(
+            [spec.qlib_symbol for spec in download_to_qlib.DEFAULT_INSTRUMENTS],
+            list(frames),
+        )
+        self.assertEqual(
+            [
+                mock.call(symbol=spec.qlib_symbol)
+                for spec in download_to_qlib.DEFAULT_INSTRUMENTS
+            ],
+            akshare.fund_etf_hist_sina.call_args_list,
+        )
+
+
+class SafeProviderPublicationTest(unittest.TestCase):
+    @staticmethod
+    def make_frame(
+        dates: list[str],
+        offset: float = 0.0,
+        include_amount: bool = True,
+    ) -> pd.DataFrame:
+        row_count = len(dates)
+        values = np.arange(row_count, dtype=np.float32) + offset
+        columns = {
+            "open": values + 1,
+            "close": values + 2,
+            "high": values + 3,
+            "low": values + 0.5,
+            "volume": values + 100,
+            "factor": np.ones(row_count, dtype=np.float32),
+        }
+        if include_amount:
+            columns["amount"] = values + 1000
+        return pd.DataFrame(columns, index=pd.to_datetime(dates))
 
     def setUp(self) -> None:
         self.spec = download_to_qlib.InstrumentSpec(
@@ -217,20 +503,24 @@ class SafeProviderPublicationTest(unittest.TestCase):
             self.make_frame(["2024-01-01", "2024-01-02"]), self.spec
         )
 
+    def test_validate_frame_accepts_frame_without_optional_amount(self) -> None:
+        download_to_qlib.validate_frame(
+            self.make_frame(
+                ["2024-01-01", "2024-01-02"], include_amount=False
+            ),
+            self.spec,
+        )
+
     def test_validate_frame_rejects_empty_frame_and_names_symbol(self) -> None:
         frame = self.make_frame([])
 
         with self.assertRaisesRegex(ValueError, "sh510050.*empty"):
             download_to_qlib.validate_frame(frame, self.spec)
 
-    def test_validate_frame_rejects_missing_fields_and_names_them(self) -> None:
-        frame = self.make_frame(["2024-01-01"]).drop(
-            columns=["amount", "factor"]
-        )
+    def test_validate_frame_rejects_missing_core_field_and_names_it(self) -> None:
+        frame = self.make_frame(["2024-01-01"]).drop(columns=["factor"])
 
-        with self.assertRaisesRegex(
-            ValueError, "sh510050.*amount.*factor"
-        ):
+        with self.assertRaisesRegex(ValueError, "sh510050.*factor"):
             download_to_qlib.validate_frame(frame, self.spec)
 
     def test_validate_frame_rejects_non_datetime_index(self) -> None:
@@ -285,6 +575,63 @@ class SafeProviderPublicationTest(unittest.TestCase):
             {line.split("\t")[0] for line in metadata},
         )
         self.assertEqual(1.0, feature_values[0])
+
+    def test_provider_round_trips_without_optional_amount_file(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(
+                ["2024-01-01", "2024-01-02"], include_amount=False
+            )
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            download_to_qlib.validate_provider(out_dir, frames)
+            feature_names = {
+                path.name
+                for path in (out_dir / "features/sh510050").iterdir()
+            }
+
+        self.assertEqual(
+            {f"{field}.day.bin" for field in download_to_qlib.REQUIRED_FIELDS},
+            feature_names,
+        )
+
+    def test_validate_provider_accepts_amount_only_for_frame_that_has_it(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(["2024-01-01", "2024-01-02"]),
+            "sh588000": self.make_frame(
+                ["2024-01-02", "2024-01-03"], include_amount=False
+            ),
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            download_to_qlib.validate_provider(out_dir, frames)
+
+            self.assertTrue(
+                (out_dir / "features/sh510050/amount.day.bin").is_file()
+            )
+            self.assertFalse(
+                (out_dir / "features/sh588000/amount.day.bin").exists()
+            )
+
+    def test_validate_provider_rejects_unexpected_optional_amount_file(self) -> None:
+        frames = {
+            "sh510050": self.make_frame(
+                ["2024-01-01", "2024-01-02"], include_amount=False
+            )
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            out_dir = Path(directory) / "provider"
+            download_to_qlib.write_provider(frames, out_dir)
+            unexpected = out_dir / "features/sh510050/amount.day.bin"
+            np.array([0.0, 1.0, 2.0], dtype="<f4").tofile(unexpected)
+
+            with self.assertRaisesRegex(ValueError, "unexpected.*amount"):
+                download_to_qlib.validate_provider(out_dir, frames)
 
     def test_validate_provider_rejects_missing_feature_and_names_path(self) -> None:
         frames = {
@@ -534,8 +881,8 @@ class SafeProviderPublicationTest(unittest.TestCase):
         self.assertEqual([spec.qlib_symbol for spec in specs], list(frames))
         self.assertEqual(
             [
-                mock.call("510050", "20240101", "20240131", "qfq"),
-                mock.call("510300", "20240101", "20240131", "qfq"),
+                mock.call(specs[0], "20240101", "20240131", "qfq"),
+                mock.call(specs[1], "20240101", "20240131", "qfq"),
             ],
             download_mock.call_args_list,
         )

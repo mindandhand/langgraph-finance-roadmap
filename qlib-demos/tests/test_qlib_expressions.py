@@ -15,6 +15,34 @@ from download_to_qlib import write_features
 
 
 class QlibExpressionsRunTest(unittest.TestCase):
+    def test_bundled_provider_reads_all_default_instruments(self) -> None:
+        import qlib
+        from qlib.data import D
+
+        provider_dir = ROOT / "qlib-demos/qlib-data"
+        instruments = [
+            "sh510050",
+            "sh510300",
+            "sh510500",
+            "sz159915",
+            "sh588000",
+        ]
+        qlib.init(provider_uri=str(provider_dir), region="cn")
+
+        features = D.features(
+            instruments,
+            ["$close"],
+            start_time="2021-01-04",
+            end_time="2021-01-08",
+        )
+
+        self.assertEqual(
+            set(instruments),
+            set(features.index.get_level_values("instrument")),
+        )
+        self.assertFalse(features.empty)
+        self.assertFalse(features["$close"].isna().any())
+
     def test_run_script_prints_rows_from_bundled_provider(self) -> None:
         result = subprocess.run(
             ["bash", str(ROOT / "qlib-demos/03-qlib-expressions/run.sh")],
