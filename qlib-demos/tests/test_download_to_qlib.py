@@ -121,6 +121,78 @@ class BundledMultiEtfProviderTest(unittest.TestCase):
             self.provider_dir, reconstructed_frames
         )
 
+    def test_bundled_provider_satisfies_market_data_numeric_contract(self) -> None:
+        calendar = pd.DatetimeIndex(
+            pd.to_datetime(
+                (
+                    self.provider_dir / "calendars/day.txt"
+                ).read_text().splitlines()
+            )
+        )
+        specs = {
+            spec.qlib_symbol: spec
+            for spec in download_to_qlib.DEFAULT_INSTRUMENTS
+        }
+
+        for symbol, start_text, end_text in self.read_metadata():
+            start_pos = int(calendar.searchsorted(pd.Timestamp(start_text)))
+            end_pos = int(calendar.searchsorted(pd.Timestamp(end_text)))
+            calendar_slice = calendar[start_pos : end_pos + 1]
+            columns = {}
+            for field in download_to_qlib.FEATURES:
+                values = np.fromfile(
+                    self.provider_dir
+                    / "features"
+                    / symbol
+                    / f"{field}.day.bin",
+                    dtype="<f4",
+                )
+                columns[field] = values[1:]
+            frame = pd.DataFrame(columns, index=calendar_slice)
+            observed = frame.dropna(how="all")
+
+            self.assertFalse(
+                observed.isna().any().any(),
+                (symbol, observed[observed.isna().any(axis=1)]),
+            )
+            prices = observed[["open", "close", "high", "low"]]
+            self.assertTrue(
+                np.isfinite(prices.to_numpy()).all(), symbol
+            )
+            self.assertTrue((prices > 0).all().all(), symbol)
+            self.assertTrue(
+                (observed["volume"] >= 0).all()
+                and np.isfinite(observed["volume"]).all(),
+                symbol,
+            )
+            self.assertTrue(
+                (observed["amount"] >= 0).all()
+                and np.isfinite(observed["amount"]).all(),
+                symbol,
+            )
+            self.assertTrue(
+                (observed["factor"] > 0).all()
+                and np.isfinite(observed["factor"]).all(),
+                symbol,
+            )
+            tolerance = 1e-7 + 1e-6 * prices.abs().max(axis=1)
+            self.assertTrue(
+                (
+                    observed["high"] + tolerance
+                    >= observed[["open", "close", "low"]].max(axis=1)
+                ).all(),
+                symbol,
+            )
+            self.assertTrue(
+                (
+                    observed["low"]
+                    <= observed[["open", "close"]].min(axis=1) + tolerance
+                ).all(),
+                symbol,
+            )
+            with self.subTest(symbol=symbol):
+                download_to_qlib.validate_frame(observed, specs[symbol])
+
 
 class SharedInstrumentEnvironmentTest(unittest.TestCase):
     env_script = ROOT / "qlib-demos/qlib_env.sh"
@@ -459,6 +531,28 @@ class EtfDownloadFallbackTest(unittest.TestCase):
             list(frame.columns),
         )
 
+    def test_invalid_eastmoney_price_warns_with_cause_and_uses_sina(self) -> None:
+        akshare = self.akshare_mock()
+        invalid = self.eastmoney_frame()
+        invalid.loc[0, "开盘"] = -1.0
+        akshare.fund_etf_hist_em.return_value = invalid
+        akshare.fund_etf_hist_sina.return_value = self.sina_frame()
+
+        with mock.patch.dict(sys.modules, {"akshare": akshare}):
+            with self.assertWarnsRegex(
+                RuntimeWarning,
+                "ValueError: sh510050.*open.*strictly positive.*"
+                "Sina.*not guaranteed.*hfq.*semantics",
+            ):
+                frame = download_to_qlib.download(
+                    self.spec, "20240102", "20240103", "hfq"
+                )
+
+        akshare.fund_etf_hist_sina.assert_called_once_with(
+            symbol="sh510050"
+        )
+        self.assertTrue((frame["open"] > 0).all())
+
     def test_both_sources_fail_with_instrument_specific_chain(self) -> None:
         akshare = self.akshare_mock()
         eastmoney_error = OSError("EastMoney offline")
@@ -576,6 +670,56 @@ class SafeProviderPublicationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "sh510050.*monotonic"):
             download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_validate_frame_rejects_nonfinite_or_invalid_field_values(self) -> None:
+        cases = (
+            ("open", 0.0, "open.*strictly positive"),
+            ("close", np.inf, "close.*finite"),
+            ("high", np.nan, "high.*finite"),
+            ("low", -1.0, "low.*strictly positive"),
+            ("volume", -1.0, "volume.*non-negative"),
+            ("volume", np.inf, "volume.*finite"),
+            ("amount", -1.0, "amount.*non-negative"),
+            ("amount", np.nan, "amount.*finite"),
+            ("factor", 0.0, "factor.*strictly positive"),
+            ("factor", np.inf, "factor.*finite"),
+        )
+
+        for field, value, message in cases:
+            with self.subTest(field=field, value=value):
+                frame = self.make_frame(["2024-01-01"])
+                frame.loc[frame.index[0], field] = value
+                with self.assertRaisesRegex(
+                    ValueError, f"sh510050.*{message}"
+                ):
+                    download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_validate_frame_rejects_invalid_ohlc_relationships(self) -> None:
+        cases = (
+            ("high", 0.25, "high.*low"),
+            ("low", 1.5, "low.*open.*close"),
+            ("high", 1.5, "high.*open.*close"),
+        )
+
+        for field, value, message in cases:
+            with self.subTest(field=field, value=value):
+                frame = self.make_frame(["2024-01-01"])
+                frame.loc[frame.index[0], field] = value
+                with self.assertRaisesRegex(
+                    ValueError, f"sh510050.*{message}"
+                ):
+                    download_to_qlib.validate_frame(frame, self.spec)
+
+    def test_validate_frame_allows_tiny_float32_ohlc_rounding(self) -> None:
+        frame = self.make_frame(["2024-01-01"])
+        frame.loc[frame.index[0], "low"] = np.nextafter(
+            np.float32(1.0), np.float32(np.inf)
+        )
+        frame.loc[frame.index[0], "high"] = np.nextafter(
+            np.float32(2.0), np.float32(-np.inf)
+        )
+
+        download_to_qlib.validate_frame(frame, self.spec)
 
     def test_write_and_validate_complete_multi_instrument_provider(self) -> None:
         frames = {
@@ -1065,6 +1209,12 @@ class SafeProviderPublicationTest(unittest.TestCase):
             args = download_to_qlib.parse_args()
 
         self.assertEqual("20050223", args.start)
+
+    def test_parse_args_defaults_to_hfq_adjustment(self) -> None:
+        with mock.patch.object(sys, "argv", ["download_to_qlib.py"]):
+            args = download_to_qlib.parse_args()
+
+        self.assertEqual("hfq", args.adjust)
 
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ def download(
     spec: InstrumentSpec,
     start: str,
     end: str,
-    adjust: str = "qfq",
+    adjust: str = "hfq",
 ) -> pd.DataFrame:
     import akshare as ak  # lazy import so the script loads without akshare for --help
 
@@ -136,8 +136,12 @@ def download(
         source = "EastMoney"
     except Exception as eastmoney_error:
         adjustment_label = adjust or "unadjusted"
+        eastmoney_failure = (
+            f"{type(eastmoney_error).__name__}: {eastmoney_error}"
+        )
         warnings.warn(
-            f"{qlib_symbol}: EastMoney failed; using Sina ETF history. "
+            f"{qlib_symbol}: EastMoney failed with {eastmoney_failure}; "
+            "using Sina ETF history. "
             "Sina has no adjustment selector, so fallback values are used "
             "as returned and are not guaranteed to match the requested "
             f"{adjustment_label} price semantics.",
@@ -178,6 +182,61 @@ def validate_frame(frame: pd.DataFrame, spec: InstrumentSpec) -> None:
         raise ValueError(f"{symbol} frame contains duplicate dates")
     if not frame.index.is_monotonic_increasing:
         raise ValueError(f"{symbol} frame dates must be monotonic increasing")
+
+    numeric_fields = list(REQUIRED_FIELDS)
+    if "amount" in frame.columns:
+        numeric_fields.append("amount")
+    values: dict[str, np.ndarray] = {}
+    for field in numeric_fields:
+        try:
+            field_values = frame[field].to_numpy(dtype=np.float64)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{symbol} frame field {field} must be numeric"
+            ) from exc
+        if not np.isfinite(field_values).all():
+            raise ValueError(
+                f"{symbol} frame field {field} must be finite"
+            )
+        values[field] = field_values
+
+    for field in ("open", "close", "high", "low", "factor"):
+        if not (values[field] > 0).all():
+            raise ValueError(
+                f"{symbol} frame field {field} must be strictly positive"
+            )
+    for field in ("volume", "amount"):
+        if field in values and not (values[field] >= 0).all():
+            raise ValueError(
+                f"{symbol} frame field {field} must be non-negative"
+            )
+
+    open_values = values["open"]
+    close_values = values["close"]
+    high_values = values["high"]
+    low_values = values["low"]
+    scale = np.maximum.reduce(
+        [open_values, close_values, high_values, low_values]
+    )
+    tolerance = 1e-7 + 1e-6 * scale
+    if (high_values + tolerance < low_values).any():
+        raise ValueError(
+            f"{symbol} frame high must be greater than or equal to low"
+        )
+    if (
+        low_values
+        > np.minimum(open_values, close_values) + tolerance
+    ).any():
+        raise ValueError(
+            f"{symbol} frame low must not exceed min(open, close)"
+        )
+    if (
+        high_values + tolerance
+        < np.maximum(open_values, close_values)
+    ).any():
+        raise ValueError(
+            f"{symbol} frame high must not be below max(open, close)"
+        )
 
 
 def _validate_qlib_symbol(qlib_symbol: str) -> None:
@@ -464,7 +523,12 @@ def parse_args() -> argparse.Namespace:
         help="Start date YYYYMMDD (default: 20050223)",
     )
     parser.add_argument("--end", default=datetime.now().strftime("%Y%m%d"), help="End date YYYYMMDD")
-    parser.add_argument("--adjust", default="qfq", choices=["qfq", "hfq", ""], help="Price adjustment (default: qfq)")
+    parser.add_argument(
+        "--adjust",
+        default="hfq",
+        choices=["qfq", "hfq", ""],
+        help="Price adjustment (default: hfq)",
+    )
     parser.add_argument("--out-dir", default=str(DATA_DIR), help="Output directory")
     args = parser.parse_args()
     if (args.symbol is None) != (args.qlib_symbol is None):

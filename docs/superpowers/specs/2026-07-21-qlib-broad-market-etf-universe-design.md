@@ -23,7 +23,7 @@
 ## 数据范围与语义
 
 - 数据频率为日频。
-- 优先使用 AkShare EastMoney ETF 历史行情接口获取请求复权口径的 OHLCV；成交额只在数据源真实返回时保留。
+- 优先使用 AkShare EastMoney ETF 历史行情接口获取请求复权口径的 OHLCV；默认使用 `hfq` 后复权，以保证 2005 年起的完整历史价格严格为正并适合连续收益率教学；成交额只在数据源真实返回时保留。
 - 每个 ETF 保留自身真实上市日期和数据结束日期，不强制裁剪到共同区间。
 - 默认下载起点为 `2005-02-23`，覆盖标的池中最早上市的上证 50 ETF（`sh510050`）完整历史。
 - Qlib calendar 使用所有 ETF 交易日的并集。
@@ -35,7 +35,7 @@
 
 在较早的生成尝试中，EastMoney 接口在当时网络环境持续断开连接，而 AkShare Sina ETF 日线接口可以稳定返回五只标的的 OHLCV。经用户批准，下载器保留 EastMoney 为主数据源，并在其外部请求或响应失败时，使用已校验 `InstrumentSpec` 中的交易所限定 `qlib_symbol` 调用 Sina，避免猜测 `sh`/`sz` 前缀。
 
-Sina ETF 日线不提供 `amount`，也没有 `qfq`/`hfq` 调整选择器。因此核心必需字段调整为 `open`、`close`、`high`、`low`、`volume`、`factor`，`amount` 仅在数据源真实提供时作为可选 feature 写入，绝不估算或合成。Sina 回退值按源端原样保存，并明确告警其价格口径不能保证与请求的复权选项一致。Provider 校验仍逐 instrument 严格匹配 DataFrame 实际字段、元数据、日历、二进制头、长度和 payload；任一核心字段或任一标的缺失都会使整体构建失败。Task 4 最终提交的内置 provider 后续由 EastMoney 主数据源对五只 ETF 全部生成成功，因此每个标的目录均含 7 个 feature 文件，其中 `amount` 为上游真实返回的成交额。
+Sina ETF 日线不提供 `amount`，也没有 `qfq`/`hfq` 调整选择器。因此核心必需字段调整为 `open`、`close`、`high`、`low`、`volume`、`factor`，`amount` 仅在数据源真实提供时作为可选 feature 写入，绝不估算或合成。Sina 回退值按源端原样保存，并明确告警其价格口径不能保证与请求的复权选项一致。Provider 校验仍逐 instrument 严格匹配 DataFrame 实际字段、数值语义、元数据、日历、二进制头、长度和 payload；任一核心字段、非法价量关系或任一标的缺失都会使整体构建失败。内置 provider 由 EastMoney 主数据源以 `hfq` 口径对五只 ETF 生成，因此每个标的目录均含 7 个 feature 文件，其中 `amount` 为上游真实返回的成交额。
 
 ## 组件设计
 

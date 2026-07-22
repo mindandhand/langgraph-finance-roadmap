@@ -10,7 +10,7 @@
 
 ## 2026-07-22 Execution Deviation
 
-The user approved an AkShare Sina ETF-history fallback after EastMoney was unreachable during an earlier generation attempt. EastMoney remains primary. Sina is called with the validated exchange-qualified Qlib symbol, provides OHLCV but neither `amount` nor an adjustment selector, and is stored exactly as returned with an explicit price-semantics warning. Core required fields are `open`, `close`, `high`, `low`, `volume`, and `factor`; `amount` is optional and is never synthesized. Provider generation and validation must therefore require exactly the fields present for each frame—six files for Sina-backed frames, seven when the primary source supplies real amount. This decision supersedes later steps that unconditionally require amount, seven binaries, or guaranteed qfq semantics from Sina. The bundled provider committed by Task 4 was subsequently generated successfully from the EastMoney primary source for all five ETFs, so every committed instrument has all seven feature files, including real source-provided `amount`.
+The user approved an AkShare Sina ETF-history fallback after EastMoney was unreachable during an earlier generation attempt. EastMoney remains primary. Sina is called with the validated exchange-qualified Qlib symbol, provides OHLCV but neither `amount` nor an adjustment selector, and is stored exactly as returned with an explicit price-semantics warning. Core required fields are `open`, `close`, `high`, `low`, `volume`, and `factor`; `amount` is optional and is never synthesized. Provider generation and validation must therefore require exactly the fields present for each frame—six files for Sina-backed frames, seven when the primary source supplies real amount. This decision supersedes later steps that unconditionally require amount, seven binaries, or guaranteed adjustment semantics from Sina. The bundled provider uses EastMoney `hfq` prices for all five ETFs so the complete 2005-present history remains strictly positive and suitable for continuous-return teaching; every committed instrument has all seven feature files, including real source-provided `amount`.
 
 ---
 
@@ -633,7 +633,7 @@ Expected: FAIL because only `sh510300` exists.
 Run from the repository root:
 
 ```bash
-python qlib-demos/download_to_qlib.py --start 20050223 --end 20260720
+python qlib-demos/download_to_qlib.py --start 20050223 --end 20260720 --adjust hfq
 ```
 
 Expected: all five ETF downloads succeed before publication. EastMoney-backed frames have seven feature files when real amount is returned; Sina-backed frames have six and omit `amount.day.bin`.
