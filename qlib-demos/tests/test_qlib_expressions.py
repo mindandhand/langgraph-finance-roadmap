@@ -69,6 +69,17 @@ class QlibExpressionsRunTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn('"quantile_return_mean"', result.stdout)
 
+    def test_model_training_baseline_produces_predictions(self) -> None:
+        result = subprocess.run(
+            ["bash", str(ROOT / "qlib-demos/07-model-training-baseline/run.sh")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("prediction rows:", result.stdout)
+
     def test_feature_binary_starts_with_calendar_index(self) -> None:
         calendar = pd.date_range("2024-01-01", periods=3, freq="D")
         frame = pd.DataFrame(
