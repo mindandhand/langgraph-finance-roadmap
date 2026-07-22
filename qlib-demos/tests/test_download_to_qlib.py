@@ -46,6 +46,18 @@ class BundledMultiEtfProviderTest(unittest.TestCase):
         self.assertEqual(self.expected_symbols, metadata_symbols)
         self.assertEqual(self.expected_symbols, feature_symbols)
 
+    def test_bundled_provider_starts_at_earliest_etf_listing(self) -> None:
+        metadata = {
+            symbol: (start, end)
+            for symbol, start, end in self.read_metadata()
+        }
+        calendar = (
+            self.provider_dir / "calendars/day.txt"
+        ).read_text().splitlines()
+
+        self.assertEqual("2005-02-23", metadata["sh510050"][0])
+        self.assertEqual("2005-02-23", calendar[0])
+
     def test_bundled_provider_files_and_binary_contract_are_valid(self) -> None:
         calendar_path = self.provider_dir / "calendars/day.txt"
         calendar_lines = calendar_path.read_text().splitlines()
@@ -422,6 +434,29 @@ class EtfDownloadFallbackTest(unittest.TestCase):
         )
         self.assertTrue(
             all(dtype == np.dtype("float32") for dtype in frame.dtypes)
+        )
+
+    def test_malformed_eastmoney_response_uses_sina_fallback(self) -> None:
+        akshare = self.akshare_mock()
+        akshare.fund_etf_hist_em.return_value = self.eastmoney_frame().drop(
+            columns=["成交量"]
+        )
+        akshare.fund_etf_hist_sina.return_value = self.sina_frame()
+
+        with mock.patch.dict(sys.modules, {"akshare": akshare}):
+            with self.assertWarnsRegex(
+                RuntimeWarning, "Sina.*not guaranteed.*qfq.*semantics"
+            ):
+                frame = download_to_qlib.download(
+                    self.spec, "20240102", "20240103", "qfq"
+                )
+
+        akshare.fund_etf_hist_sina.assert_called_once_with(
+            symbol="sh510050"
+        )
+        self.assertEqual(
+            ["open", "close", "high", "low", "volume", "factor"],
+            list(frame.columns),
         )
 
     def test_both_sources_fail_with_instrument_specific_chain(self) -> None:
@@ -1024,6 +1059,12 @@ class SafeProviderPublicationTest(unittest.TestCase):
                     download_to_qlib.parse_args()
 
         self.assertEqual(2, raised.exception.code)
+
+    def test_parse_args_defaults_to_earliest_etf_listing_date(self) -> None:
+        with mock.patch.object(sys, "argv", ["download_to_qlib.py"]):
+            args = download_to_qlib.parse_args()
+
+        self.assertEqual("20050223", args.start)
 
 
 if __name__ == "__main__":

@@ -132,6 +132,7 @@ def download(
             adjust=adjust,
         )
         frame = _normalize_download(raw, start, end, COLUMN_MAP)
+        validate_frame(frame, validated_spec)
         source = "EastMoney"
     except Exception as eastmoney_error:
         adjustment_label = adjust or "unadjusted"
@@ -146,6 +147,7 @@ def download(
         try:
             raw = ak.fund_etf_hist_sina(symbol=qlib_symbol)
             frame = _normalize_download(raw, start, end)
+            validate_frame(frame, validated_spec)
             source = "Sina"
         except Exception as sina_error:
             raise RuntimeError(
@@ -456,7 +458,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Qlib name for a single override (requires --symbol)",
     )
-    parser.add_argument("--start", default="20100104", help="Start date YYYYMMDD")
+    parser.add_argument(
+        "--start",
+        default="20050223",
+        help="Start date YYYYMMDD (default: 20050223)",
+    )
     parser.add_argument("--end", default=datetime.now().strftime("%Y%m%d"), help="End date YYYYMMDD")
     parser.add_argument("--adjust", default="qfq", choices=["qfq", "hfq", ""], help="Price adjustment (default: qfq)")
     parser.add_argument("--out-dir", default=str(DATA_DIR), help="Output directory")

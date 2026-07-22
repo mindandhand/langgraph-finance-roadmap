@@ -68,6 +68,7 @@ python qlib-demos/download_to_qlib.py
 OHLCV 和 `factor` 是 provider 的核心字段。`amount` 仅在上游真实返回成交额时写入；Sina 回退没有成交额，因此对应 provider 不包含 `amount.day.bin`。下载器绝不会从价格或成交量推算、填充或伪造成交额。
 
 仓库当前内置的五标的快照由 EastMoney 主数据源生成，每个标的均含真实上游成交额，因此每个 feature 目录恰好有 7 个 `.day.bin` 文件。
+默认下载起点是 `2005-02-23`，以保留上证 50 ETF（`sh510050`）从上市日起的完整历史；其他 ETF 仍按各自真实上市日期起算。
 
 Provider 的交易日历取五只 ETF 日期的并集；每只 ETF 仍保留自己的实际上市区间，对齐到并集日历时，上市前的数据不可用并显示为 NaN。这组数据只用于教学，不代表生产股票池。各节 `run.sh` 默认使用这五只 ETF；调用方也可以在运行前设置 `QLIB_INSTRUMENTS` 覆盖默认值，例如：
 

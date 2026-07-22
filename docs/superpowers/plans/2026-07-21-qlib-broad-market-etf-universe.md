@@ -633,7 +633,7 @@ Expected: FAIL because only `sh510300` exists.
 Run from the repository root:
 
 ```bash
-python qlib-demos/download_to_qlib.py --start 20100104 --end 20260720
+python qlib-demos/download_to_qlib.py --start 20050223 --end 20260720
 ```
 
 Expected: all five ETF downloads succeed before publication. EastMoney-backed frames have seven feature files when real amount is returned; Sina-backed frames have six and omit `amount.day.bin`.
