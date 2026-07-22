@@ -49,6 +49,10 @@ def market() -> str:
     return os.getenv("QLIB_MARKET", "csi300")
 
 
+def benchmark() -> str:
+    return os.getenv("QLIB_BENCHMARK", "sh510300")
+
+
 def instruments():
     configured = os.getenv("QLIB_INSTRUMENTS")
     if configured:

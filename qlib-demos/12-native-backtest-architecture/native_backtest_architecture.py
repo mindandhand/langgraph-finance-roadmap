@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qlib_demo_common import end_time, init_qlib, market, print_context, start_time, test_start_time, train_end_time
+from qlib_demo_common import benchmark, end_time, init_qlib, instruments, market, print_context, start_time, test_start_time, train_end_time
 
 
 def build_dataset():
@@ -12,7 +12,7 @@ def build_dataset():
     from qlib.data.dataset import DatasetH
 
     handler = Alpha158(
-        instruments=market(),
+        instruments=instruments(),
         start_time=start_time(),
         end_time=end_time(),
         fit_start_time=start_time(),
@@ -50,7 +50,7 @@ def build_port_analysis_config(model, dataset) -> dict:
             "start_time": test_start_time(),
             "end_time": end_time(),
             "account": float(os.getenv("QLIB_ACCOUNT", "100000000")),
-            "benchmark": os.getenv("QLIB_BENCHMARK", "SH000300"),
+            "benchmark": benchmark(),
             "exchange_kwargs": {
                 "freq": "day",
                 "limit_threshold": float(os.getenv("QLIB_LIMIT_THRESHOLD", "0.095")),

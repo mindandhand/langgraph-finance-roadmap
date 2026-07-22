@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "qlib-demos"))
 
 import download_to_qlib
+import qlib_demo_common
 
 
 class BundledMultiEtfProviderTest(unittest.TestCase):
@@ -315,6 +316,71 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
                 self.assertNotIn(
                     'export QLIB_INSTRUMENTS="sh510300"', contents
                 )
+
+    def test_dataset_demos_use_shared_instrument_selector(self) -> None:
+        demos = [
+            "04-data-handler-and-dataset/data_handler_and_dataset.py",
+            "11-alpha158-alpha360-feature-sets/alpha_feature_sets.py",
+            "12-native-backtest-architecture/native_backtest_architecture.py",
+        ]
+
+        for relative_path in demos:
+            with self.subTest(demo=relative_path):
+                contents = (ROOT / "qlib-demos" / relative_path).read_text()
+                self.assertIn("instruments=instruments()", contents)
+                self.assertNotIn("instruments=market()", contents)
+
+    def test_default_benchmark_is_available_in_bundled_provider(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("QLIB_BENCHMARK", None)
+            self.assertEqual("sh510300", qlib_demo_common.benchmark())
+
+        with mock.patch.dict(
+            os.environ, {"QLIB_BENCHMARK": "sh510050"}
+        ):
+            self.assertEqual("sh510050", qlib_demo_common.benchmark())
+
+    def test_native_backtest_enables_mlflow_file_store(self) -> None:
+        run_script = (
+            ROOT / "qlib-demos/12-native-backtest-architecture/run.sh"
+        ).read_text()
+
+        self.assertIn("export MLFLOW_ALLOW_FILE_STORE=true", run_script)
+
+    def test_data_handler_demo_runs_with_bundled_provider(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                str(
+                    ROOT
+                    / "qlib-demos/04-data-handler-and-dataset/run.sh"
+                ),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("train shape:", result.stdout)
+
+    def test_alpha_feature_demo_runs_with_bundled_provider(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                str(
+                    ROOT
+                    / "qlib-demos/11-alpha158-alpha360-feature-sets/run.sh"
+                ),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("Alpha158", result.stdout)
+        self.assertIn("Alpha360", result.stdout)
 
 
 class MultiEtfProviderModelTest(unittest.TestCase):

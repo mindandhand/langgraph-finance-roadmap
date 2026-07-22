@@ -11,5 +11,6 @@ export QLIB_START_TIME="2015-01-05"
 export QLIB_END_TIME="2026-07-18"
 export QLIB_TRAIN_END_TIME="2023-12-31"
 export QLIB_TEST_START_TIME="2024-01-01"
+export MLFLOW_ALLOW_FILE_STORE=true
 
 python "$SCRIPT_DIR/native_backtest_architecture.py"

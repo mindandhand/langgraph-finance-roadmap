@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from qlib_demo_common import (
     end_time,
     init_qlib,
-    market,
+    instruments,
     print_context,
     start_time,
     test_start_time,
@@ -30,7 +30,7 @@ def build_dataset():
     from qlib.data.dataset.handler import DataHandlerLP
 
     handler = DataHandlerLP(
-        instruments=market(),
+        instruments=instruments(),
         start_time=start_time(),
         end_time=end_time(),
         data_loader={

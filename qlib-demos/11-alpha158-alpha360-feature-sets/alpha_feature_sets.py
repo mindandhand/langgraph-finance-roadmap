@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qlib_demo_common import end_time, init_qlib, market, print_context, start_time, test_start_time, train_end_time
+from qlib_demo_common import end_time, init_qlib, instruments, print_context, start_time, test_start_time, train_end_time
 
 
 def preview_handler(handler_cls, name: str) -> None:
@@ -11,11 +11,12 @@ def preview_handler(handler_cls, name: str) -> None:
     from qlib.data.dataset.handler import DataHandlerLP
 
     handler = handler_cls(
-        instruments=market(),
+        instruments=instruments(),
         start_time=start_time(),
         end_time=end_time(),
         fit_start_time=start_time(),
         fit_end_time=train_end_time(),
+        infer_processors=[],
     )
     dataset = DatasetH(
         handler=handler,
