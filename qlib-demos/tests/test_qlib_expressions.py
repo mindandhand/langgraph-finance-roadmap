@@ -55,6 +55,20 @@ class QlibExpressionsRunTest(unittest.TestCase):
         self.assertIn("rolling_mom20_rank", result.stdout)
         self.assertNotIn("Empty DataFrame", result.stdout)
 
+    def test_config_driven_workflow_runs_with_installed_pandas(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                str(ROOT / "qlib-demos/10-config-driven-alpha-workflow/run.sh"),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn('"quantile_return_mean"', result.stdout)
+
     def test_feature_binary_starts_with_calendar_index(self) -> None:
         calendar = pd.date_range("2024-01-01", periods=3, freq="D")
         frame = pd.DataFrame(
