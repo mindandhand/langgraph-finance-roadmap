@@ -1,0 +1,7 @@
+agno>=2.2.10
+streamlit>=1.40.2
+ddgs
+duckduckgo-search
+newspaper4k>=0.9.3.1
+lxml_html_clean>=0.4.1
+python-dotenv>=1.0.0

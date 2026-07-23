@@ -1,52 +1,53 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import streamlit as st
 from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.e2b import E2BTools
-from agno.tools.firecrawl import FirecrawlTools
+from agno.models.deepseek import DeepSeek
+from agno.tools.duckduckgo import DuckDuckGoTools
+from dotenv import load_dotenv
+
+
+APP_DIR = Path(__file__).resolve().parent
+REPO_DIR = APP_DIR.parent
+SHARED_WORKSPACE_DIR = REPO_DIR.parent
+
+for env_path in (
+    APP_DIR / ".env",
+    REPO_DIR / ".env",
+    SHARED_WORKSPACE_DIR / ".env",
+):
+    load_dotenv(env_path)
+
+model_id = os.getenv("DEEPSEEK_MODEL_ID", os.getenv("MODEL_ID", "deepseek-chat"))
+base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+deepseek_api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
 
 st.set_page_config(
-    page_title="Life Insurance Coverage Advisor",
-    page_icon="🛡️",
+    page_title="人寿保险保额顾问",
     layout="centered",
 )
 
-st.title("🛡️ Life Insurance Coverage Advisor")
+st.title("人寿保险保额顾问")
 st.caption(
-    "Prototype Streamlit app powered by Agno Agents, OpenAI GPT-5, E2B sandboxed code execution, and Firecrawl search."
+    "使用 DeepSeek、DuckDuckGo 搜索和本地确定性计算，估算定期寿险保额并整理产品研究线索。"
 )
 
-# -----------------------------------------------------------------------------
-# Sidebar configuration for API keys
-# -----------------------------------------------------------------------------
 with st.sidebar:
-    st.header("API Keys")
-    st.write("All keys stay local in your browser session.")
-    openai_api_key = st.text_input(
-        "OpenAI API Key",
+    st.header("模型配置")
+    st.write("API Key 仅保存在当前本地 Streamlit 会话中。")
+    deepseek_api_key = st.text_input(
+        "DeepSeek API Key",
+        value=deepseek_api_key or "",
         type="password",
-        key="openai_api_key",
-        help="Create one at https://platform.openai.com/api-keys",
-    )
-    firecrawl_api_key = st.text_input(
-        "Firecrawl API Key",
-        type="password",
-        key="firecrawl_api_key",
-        help="Create one at https://www.firecrawl.dev/app/api-keys",
-    )
-    e2b_api_key = st.text_input(
-        "E2B API Key",
-        type="password",
-        key="e2b_api_key",
-        help="Create one at https://e2b.dev",
+        key="deepseek_api_key",
     )
     st.markdown("---")
     st.caption(
-        "The agent uses E2B for deterministic coverage math and Firecrawl for fresh term-life product research."
+        "保额计算由本地 Python 函数完成；Agent 使用 DuckDuckGo 做产品和市场信息研究。"
     )
 
 # -----------------------------------------------------------------------------
@@ -154,48 +155,32 @@ def compute_local_breakdown(profile: Dict[str, Any], real_rate: float) -> Dict[s
 
 
 @st.cache_resource(show_spinner=False)
-def get_agent(openai_key: str, firecrawl_key: str, e2b_key: str) -> Optional[Agent]:
-    if not (openai_key and firecrawl_key and e2b_key):
+def get_agent(deepseek_key: str) -> Optional[Agent]:
+    if not deepseek_key:
         return None
 
-    os.environ["OPENAI_API_KEY"] = openai_key
-    os.environ["FIRECRAWL_API_KEY"] = firecrawl_key
-    os.environ["E2B_API_KEY"] = e2b_key
-
     return Agent(
-        name="Life Insurance Advisor",
-        model=OpenAIChat(
-            id="gpt-5-mini-2025-08-07",
-            api_key=openai_key,
+        name="人寿保险保额顾问",
+        model=DeepSeek(
+            id=model_id,
+            api_key=deepseek_key,
+            base_url=base_url,
         ),
         tools=[
-            E2BTools(timeout=180),
-            FirecrawlTools(
-                api_key=firecrawl_key,
-                enable_search=True,
-                enable_crawl=True,
-                enable_scrape=False,
-                search_params={"limit": 5, "lang": "en"},
-            ),
+            DuckDuckGoTools(),
         ],
         instructions=[
-            "You provide conservative life insurance guidance. Your workflow is strictly:",
-            "1. ALWAYS call `run_python_code` from the E2B tools to compute the coverage recommendation using the provided client JSON.",
-            "   - Treat missing numeric values as 0.",
-            "   - Use a default real discount rate of 2% when discounting income replacement cash flows.",
-            "   - Compute: discounted_income = annual_income * ((1 - (1 + r)**(-income_replacement_years)) / r).",
-            "   - Recommended coverage = max(0, discounted_income + total_debt - savings - existing_life_insurance).",
-            "   - Print a JSON with keys: coverage_amount, coverage_currency, breakdown, assumptions.",
-            "2. Use Firecrawl `search` followed by optional `scrape_website` calls to gather up-to-date term life insurance options for the client's region.",
-            "3. Respond ONLY with JSON containing the following top-level keys: coverage_amount, coverage_currency, breakdown, assumptions, recommendations, research_notes, timestamp.",
-            "   - `coverage_amount`: integer of total recommended coverage.",
-            "   - `coverage_currency`: 3-letter currency code.",
-            "   - `breakdown`: include income_replacement, debt_obligations, assets_offset, methodology.",
-            "   - `assumptions`: include income_replacement_years, real_discount_rate, additional_notes.",
-            "   - `recommendations`: list of up to three objects (name, summary, link, source).",
-            "   - `research_notes`: brief disclaimer + recency of sources.",
-            "   - `timestamp`: ISO 8601 date-time string.",
-            "Do not include markdown, commentary, or tool call traces in the final JSON output.",
+            "你提供审慎的人寿保险保额规划参考。所有内容必须使用中文。",
+            "用户会提供客户画像 JSON 和本地 Python 已计算好的保额结果。不要重新发明计算公式。",
+            "你可以使用 DuckDuckGo 搜索客户所在地的定期寿险产品、保险公司和购买注意事项。",
+            "最终只能返回 JSON，不要包含 markdown、解释性前后缀或工具调用痕迹。",
+            "JSON 顶层字段必须包含：coverage_amount, coverage_currency, breakdown, assumptions, recommendations, research_notes, timestamp。",
+            "`coverage_amount` 必须使用本地计算结果中的 recommended 数值并取整。",
+            "`coverage_currency` 使用客户画像中的 currency。",
+            "`breakdown` 包含 income_replacement, debt_obligations, assets_offset, methodology。",
+            "`assumptions` 包含 income_replacement_years, real_discount_rate, additional_notes。",
+            "`recommendations` 最多 3 条，每条包含 name, summary, link, source；如果无法确认具体产品，给出机构或购买渠道研究线索并说明不确定性。",
+            "`research_notes` 必须包含中文风险提示：本内容仅用于技术学习与规划参考，不构成投资、保险、税务或法律建议。",
         ],
         markdown=False,
     )
@@ -204,63 +189,63 @@ def get_agent(openai_key: str, firecrawl_key: str, e2b_key: str) -> Optional[Age
 # -----------------------------------------------------------------------------
 # User input form
 # -----------------------------------------------------------------------------
-st.subheader("Tell us about yourself")
+st.subheader("填写基本信息")
 
 with st.form("coverage_form"):
     col1, col2 = st.columns(2)
     with col1:
-        age = st.number_input("Age", min_value=18, max_value=85, value=35)
+        age = st.number_input("年龄", min_value=18, max_value=85, value=35)
         annual_income = st.number_input(
-            "Annual Income",
+            "年收入",
             min_value=0.0,
             value=85000.0,
             step=1000.0,
         )
         dependents = st.number_input(
-            "Dependents",
+            "需要供养的人数",
             min_value=0,
             max_value=10,
             value=2,
             step=1,
         )
         location = st.text_input(
-            "Country / State",
+            "国家或地区",
             value="United States",
-            help="Used to localize recommended insurers.",
+            help="用于检索本地可选保险机构或产品线索。",
         )
     with col2:
         total_debt = st.number_input(
-            "Total Outstanding Debt (incl. mortgage)",
+            "未偿债务总额（含房贷）",
             min_value=0.0,
             value=200000.0,
             step=5000.0,
         )
         savings = st.number_input(
-            "Savings & Investments available to dependents",
+            "可供家庭使用的储蓄和投资资产",
             min_value=0.0,
             value=50000.0,
             step=5000.0,
         )
         existing_cover = st.number_input(
-            "Existing Life Insurance",
+            "已有寿险保额",
             min_value=0.0,
             value=100000.0,
             step=5000.0,
         )
         currency = st.selectbox(
-            "Currency",
+            "币种",
             options=["USD", "CAD", "EUR", "GBP", "AUD", "INR"],
             index=0,
         )
 
     income_replacement_years = st.selectbox(
-        "Income Replacement Horizon",
+        "收入替代年限",
         options=[5, 10, 15],
         index=1,
-        help="Number of years your income should be replaced for dependents.",
+        help="希望寿险赔付可以替代多少年的收入。",
     )
 
-    submitted = st.form_submit_button("Generate Coverage & Options")
+    submitted = st.form_submit_button("生成保额建议和产品线索")
 
 
 def build_client_profile() -> Dict[str, Any]:
@@ -282,9 +267,9 @@ def render_recommendations(result: Dict[str, Any], profile: Dict[str, Any]) -> N
     coverage_currency = result.get("coverage_currency", currency)
     coverage_amount = safe_number(result.get("coverage_amount", 0))
 
-    st.subheader("Recommended Coverage")
+    st.subheader("建议保额")
     st.metric(
-        label="Total Coverage Needed",
+        label="建议总保额",
         value=format_currency(coverage_amount, coverage_currency),
     )
 
@@ -292,20 +277,20 @@ def render_recommendations(result: Dict[str, Any], profile: Dict[str, Any]) -> N
     real_rate = parse_percentage(assumptions.get("real_discount_rate", "2%"))
     local_breakdown = compute_local_breakdown(profile, real_rate)
 
-    st.subheader("Calculation Inputs")
+    st.subheader("计算输入")
     st.table(
         {
-            "Input": [
-                "Annual income",
-                "Income replacement horizon",
-                "Total debt",
-                "Liquid assets",
-                "Existing life cover",
-                "Real discount rate",
+            "项目": [
+                "年收入",
+                "收入替代年限",
+                "未偿债务",
+                "可用流动资产",
+                "已有寿险保额",
+                "实际折现率",
             ],
-            "Value": [
+            "数值": [
                 format_currency(local_breakdown["income"], coverage_currency),
-                f"{local_breakdown['years']} years",
+                f"{local_breakdown['years']} 年",
                 format_currency(local_breakdown["debt"], coverage_currency),
                 format_currency(safe_number(profile.get("available_savings")), coverage_currency),
                 format_currency(safe_number(profile.get("existing_life_insurance")), coverage_currency),
@@ -314,29 +299,29 @@ def render_recommendations(result: Dict[str, Any], profile: Dict[str, Any]) -> N
         }
     )
 
-    st.subheader("Step-by-step Coverage Math")
+    st.subheader("保额计算过程")
     step_rows = [
-        ("Annuity factor", f"{local_breakdown['annuity_factor']:.3f}"),
-        ("Discounted income replacement", format_currency(local_breakdown["discounted_income"], coverage_currency)),
-        ("+ Outstanding debt", format_currency(local_breakdown["debt"], coverage_currency)),
-        ("- Assets & existing cover", format_currency(local_breakdown["assets_offset"], coverage_currency)),
-        ("= Formula estimate", format_currency(local_breakdown["recommended"], coverage_currency)),
+        ("年金折现系数", f"{local_breakdown['annuity_factor']:.3f}"),
+        ("折现后的收入替代需求", format_currency(local_breakdown["discounted_income"], coverage_currency)),
+        ("+ 未偿债务", format_currency(local_breakdown["debt"], coverage_currency)),
+        ("- 可用资产和已有保额", format_currency(local_breakdown["assets_offset"], coverage_currency)),
+        ("= 本地公式估算", format_currency(local_breakdown["recommended"], coverage_currency)),
     ]
-    step_rows.append(("= Agent recommendation", format_currency(coverage_amount, coverage_currency)))
+    step_rows.append(("= Agent 输出保额", format_currency(coverage_amount, coverage_currency)))
 
-    st.table({"Step": [s for s, _ in step_rows], "Amount": [a for _, a in step_rows]})
+    st.table({"步骤": [s for s, _ in step_rows], "金额": [a for _, a in step_rows]})
 
     breakdown = result.get("breakdown", {})
-    with st.expander("How this number was calculated", expanded=True):
+    with st.expander("保额如何计算", expanded=True):
         st.markdown(
-            f"- Income replacement value: {format_currency(safe_number(breakdown.get('income_replacement')), coverage_currency)}"
+            f"- 收入替代需求：{format_currency(safe_number(breakdown.get('income_replacement')), coverage_currency)}"
         )
         st.markdown(
-            f"- Debt obligations: {format_currency(safe_number(breakdown.get('debt_obligations')), coverage_currency)}"
+            f"- 债务覆盖需求：{format_currency(safe_number(breakdown.get('debt_obligations')), coverage_currency)}"
         )
         assets_offset = safe_number(breakdown.get("assets_offset"))
         st.markdown(
-            f"- Assets & existing cover offset: {format_currency(assets_offset, coverage_currency)}"
+            f"- 可用资产和已有保额抵扣：{format_currency(assets_offset, coverage_currency)}"
         )
         methodology = breakdown.get("methodology")
         if methodology:
@@ -344,71 +329,90 @@ def render_recommendations(result: Dict[str, Any], profile: Dict[str, Any]) -> N
 
     recommendations = result.get("recommendations", [])
     if recommendations:
-        st.subheader("Top Term Life Options")
+        st.subheader("定期寿险产品或渠道线索")
         for idx, option in enumerate(recommendations, start=1):
             with st.container():
-                name = option.get("name", "Unnamed Product")
-                summary = option.get("summary", "No summary provided.")
+                name = option.get("name", "未命名产品或机构")
+                summary = option.get("summary", "未提供摘要。")
                 st.markdown(f"**{idx}. {name}** — {summary}")
                 link = option.get("link")
                 if link:
-                    st.markdown(f"[View details]({link})")
+                    st.markdown(f"[查看详情]({link})")
                 source = option.get("source")
                 if source:
-                    st.caption(f"Source: {source}")
+                    st.caption(f"来源：{source}")
                 st.markdown("---")
 
-    with st.expander("Model assumptions"):
+    with st.expander("模型假设"):
         st.write(
             {
-                "Income replacement years": assumptions.get(
+                "收入替代年限": assumptions.get(
                     "income_replacement_years", income_replacement_years
                 ),
-                "Real discount rate": assumptions.get("real_discount_rate", "2%"),
-                "Notes": assumptions.get("additional_notes", ""),
+                "实际折现率": assumptions.get("real_discount_rate", "2%"),
+                "补充说明": assumptions.get("additional_notes", ""),
             }
         )
 
     if result.get("research_notes"):
         st.caption(result["research_notes"])
     if result.get("timestamp"):
-        st.caption(f"Generated: {result['timestamp']}")
+        st.caption(f"生成时间：{result['timestamp']}")
 
-    with st.expander("Agent response JSON"):
+    with st.expander("Agent 返回 JSON"):
         st.json(result)
 
 
 if submitted:
-    if not all([openai_api_key, firecrawl_api_key, e2b_api_key]):
-        st.error("Please configure OpenAI, Firecrawl, and E2B API keys in the sidebar.")
+    if not deepseek_api_key:
+        st.error("请先在侧边栏填写 DeepSeek API Key。")
         st.stop()
 
-    advisor_agent = get_agent(openai_api_key, firecrawl_api_key, e2b_api_key)
+    advisor_agent = get_agent(deepseek_api_key)
     if not advisor_agent:
-        st.error("Unable to initialize the advisor. Double-check API keys.")
+        st.error("无法初始化保额顾问，请检查 DeepSeek API Key。")
         st.stop()
 
     client_profile = build_client_profile()
+    local_breakdown = compute_local_breakdown(client_profile, real_rate=0.02)
+    local_result = {
+        "coverage_amount": int(local_breakdown["recommended"]),
+        "coverage_currency": client_profile["currency"],
+        "breakdown": {
+            "income_replacement": local_breakdown["discounted_income"],
+            "debt_obligations": local_breakdown["debt"],
+            "assets_offset": local_breakdown["assets_offset"],
+            "methodology": "本地 Python 使用收入替代现值 + 未偿债务 - 可用资产 - 已有寿险保额进行估算，实际折现率默认 2%。",
+        },
+        "assumptions": {
+            "income_replacement_years": client_profile["income_replacement_years"],
+            "real_discount_rate": "2%",
+            "additional_notes": "该估算未纳入税务、通胀路径、社保、雇主福利、配偶收入变化等复杂因素。",
+        },
+    }
     user_prompt = (
-        "You will receive a JSON object describing the client's profile. Follow your workflow instructions to calculate coverage and surface suitable products.\n"
-        f"Client profile JSON: {json.dumps(client_profile)}"
+        "你会收到客户画像 JSON 和本地 Python 已计算出的保额结果 JSON。"
+        "请使用 DuckDuckGo 搜索客户所在地的定期寿险产品、保险机构或购买注意事项，"
+        "并严格按照系统指令返回中文 JSON。\n"
+        f"客户画像 JSON：{json.dumps(client_profile, ensure_ascii=False)}\n"
+        f"本地计算结果 JSON：{json.dumps(local_result, ensure_ascii=False)}"
     )
 
-    with st.spinner("Consulting advisor agent..."):
+    with st.spinner("正在计算保额并研究产品线索..."):
         response = advisor_agent.run(user_prompt, stream=False)
 
     parsed = extract_json(response.content if response else "")
     if not parsed:
-        st.error("The agent returned an unexpected response. Enable debug below to inspect raw output.")
-        with st.expander("Raw agent output"):
+        st.error("Agent 返回了非预期格式。可展开查看原始输出。")
+        with st.expander("原始 Agent 输出"):
             st.write(response.content if response else "<empty>")
     else:
         render_recommendations(parsed, client_profile)
-        with st.expander("Agent debug"):
+        with st.expander("Agent 调试输出"):
             st.write(response.content)
 
 st.divider()
 st.caption(
-    "This prototype is for educational use only and does not provide licensed financial advice. "
-    "Verify all recommendations with a qualified professional and the insurers listed."
+    "本项目仅用于技术学习与原型验证，不构成投资、保险、税务或法律建议。"
+    "请向持牌专业人士核验保额和产品信息，并以保险公司正式披露为准。"
 )

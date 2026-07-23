@@ -1,280 +1,184 @@
-"""Custom tools for the Due Diligence Pipeline.
+"""本地尽调产物生成工具。"""
 
-Provides HTML report generation, financial charts, and infographic creation.
-"""
+from __future__ import annotations
 
+import html
 import logging
-import io
-from pathlib import Path
 from datetime import datetime
-from google.adk.tools import ToolContext
-from google.genai import types, Client
+from pathlib import Path
 
-logger = logging.getLogger("DueDiligencePipeline")
+logger = logging.getLogger("VCDueDiligenceTeam")
 
-# Create outputs directory for generated files
-OUTPUTS_DIR = Path(__file__).parent / "outputs"
+OUTPUTS_DIR = Path(__file__).resolve().parent / "outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
 
 
-async def generate_financial_chart(
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _parse_rates(rates: str, fallback: list[float]) -> list[float]:
+    try:
+        values = [float(item.strip()) for item in rates.split(",") if item.strip()]
+        return values or fallback
+    except ValueError:
+        return fallback
+
+
+def generate_financial_chart(
     company_name: str,
-    current_arr: float,
-    bear_rates: str,
-    base_rates: str,
-    bull_rates: str,
-    tool_context: ToolContext
+    current_arr: float = 1.0,
+    bear_rates: str = "1.5,1.3,1.2,1.1,1.1",
+    base_rates: str = "2.5,2.0,1.8,1.5,1.3",
+    bull_rates: str = "4.0,3.0,2.3,1.9,1.6",
 ) -> dict:
-    """Generate a revenue projection chart and save as ADK artifact.
-
-    Args:
-        company_name: Name of the company being analyzed
-        current_arr: Current ARR in millions (e.g., 1.2 for $1.2M)
-        bear_rates: Comma-separated YoY growth rates for bear case
-        base_rates: Comma-separated YoY growth rates for base case
-        bull_rates: Comma-separated YoY growth rates for bull case
-        tool_context: ADK tool context for artifact saving
-
-    Returns:
-        dict with status and artifact info
-    """
+    """生成 5 年 ARR 情景预测图，并保存到 outputs 目录。"""
     try:
-        import matplotlib.pyplot as plt
         import matplotlib
-        matplotlib.use('Agg')
-        
-        # Parse growth rates
-        bear = [float(x.strip()) for x in bear_rates.split(",")]
-        base = [float(x.strip()) for x in base_rates.split(",")]
-        bull = [float(x.strip()) for x in bull_rates.split(",")]
-        
-        # Calculate projections
-        years = list(range(2025, 2025 + len(base) + 1))
-        
-        def project_arr(start, rates):
-            arr = [start]
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        current_arr = max(float(current_arr), 0.01)
+        bear = _parse_rates(bear_rates, [1.5, 1.3, 1.2, 1.1, 1.1])
+        base = _parse_rates(base_rates, [2.5, 2.0, 1.8, 1.5, 1.3])
+        bull = _parse_rates(bull_rates, [4.0, 3.0, 2.3, 1.9, 1.6])
+        horizon = min(len(bear), len(base), len(bull), 5)
+        bear, base, bull = bear[:horizon], base[:horizon], bull[:horizon]
+        years = list(range(2026, 2026 + horizon + 1))
+
+        def project(start: float, rates: list[float]) -> list[float]:
+            values = [start]
             for rate in rates:
-                arr.append(arr[-1] * rate)
-            return arr
-        
-        bear_arr = project_arr(current_arr, bear)
-        base_arr = project_arr(current_arr, base)
-        bull_arr = project_arr(current_arr, bull)
-        
-        # Create professional chart
-        plt.style.use('seaborn-v0_8-whitegrid')
+                values.append(values[-1] * rate)
+            return values
+
+        bear_arr = project(current_arr, bear)
+        base_arr = project(current_arr, base)
+        bull_arr = project(current_arr, bull)
+
+        plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(10, 6))
-        
-        ax.plot(years, bear_arr, 'o-', color='#dc2626', linewidth=2, markersize=8, label='Bear Case')
-        ax.plot(years, base_arr, 's-', color='#1a365d', linewidth=3, markersize=10, label='Base Case')
-        ax.plot(years, bull_arr, '^-', color='#16a34a', linewidth=2, markersize=8, label='Bull Case')
-        ax.fill_between(years, bear_arr, bull_arr, alpha=0.1, color='#1a365d')
-        
-        ax.set_title(f'{company_name} - Revenue Projection Analysis', fontsize=16, fontweight='bold', color='#1a365d')
-        ax.set_xlabel('Year', fontsize=12)
-        ax.set_ylabel('ARR ($ Millions)', fontsize=12)
-        ax.legend(loc='upper left', fontsize=11)
-        
-        for x, y in zip(years, base_arr):
-            ax.annotate(f'${y:.1f}M', (x, y), textcoords="offset points", 
-                       xytext=(0, 10), ha='center', fontsize=9, color='#1a365d')
-        
-        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.plot(years, bear_arr, "o-", color="#c2410c", linewidth=2, label="保守情景")
+        ax.plot(years, base_arr, "s-", color="#0f766e", linewidth=3, label="基准情景")
+        ax.plot(years, bull_arr, "^-", color="#2563eb", linewidth=2, label="乐观情景")
+        ax.fill_between(years, bear_arr, bull_arr, alpha=0.08, color="#0f766e")
+        ax.set_title(f"{company_name} ARR 情景预测", fontsize=16, fontweight="bold")
+        ax.set_xlabel("年份")
+        ax.set_ylabel("ARR（百万美元）")
+        ax.legend(loc="upper left")
+        ax.grid(True, linestyle="--", alpha=0.5)
+        for year, value in zip(years, base_arr):
+            ax.annotate(f"${value:.1f}M", (year, value), textcoords="offset points", xytext=(0, 10), ha="center")
         plt.tight_layout()
-        
-        # Save to bytes buffer
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', facecolor='white')
-        buffer.seek(0)
-        image_bytes = buffer.read()
-        plt.close()
-        
-        # Save as ADK artifact (MUST await)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        artifact_name = f"revenue_chart_{timestamp}.png"
-        chart_artifact = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-        
-        version = await tool_context.save_artifact(filename=artifact_name, artifact=chart_artifact)
-        logger.info(f"Saved chart artifact: {artifact_name} (version {version})")
-        
-        # Also save to outputs folder
+
+        artifact_name = f"revenue_chart_{_timestamp()}.png"
         filepath = OUTPUTS_DIR / artifact_name
-        filepath.write_bytes(image_bytes)
-        
+        plt.savefig(filepath, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+        plt.close(fig)
+
         return {
             "status": "success",
-            "message": f"Chart saved as '{artifact_name}' - view in Artifacts tab",
+            "message": f"收入预测图已保存：{filepath}",
             "artifact": artifact_name,
-            "version": version,
+            "path": str(filepath),
             "summary": {
-                "year_5_bear": f"${bear_arr[-1]:.1f}M",
-                "year_5_base": f"${base_arr[-1]:.1f}M",
-                "year_5_bull": f"${bull_arr[-1]:.1f}M"
-            }
+                "第五年保守情景": f"${bear_arr[-1]:.1f}M",
+                "第五年基准情景": f"${base_arr[-1]:.1f}M",
+                "第五年乐观情景": f"${bull_arr[-1]:.1f}M",
+            },
         }
-        
-    except Exception as e:
-        logger.error(f"Error generating chart: {e}")
-        return {"status": "error", "message": str(e)}
+    except Exception as exc:
+        logger.exception("生成收入预测图失败")
+        return {"status": "error", "message": str(exc)}
 
 
-async def generate_html_report(
-    report_data: str,
-    tool_context: ToolContext
-) -> dict:
-    """Generate a professional HTML investment report.
-
-    Args:
-        report_data: The investor memo content to format as HTML
-        tool_context: ADK tool context for artifact saving
-
-    Returns:
-        dict with status and artifact info
-    """
-    current_date = datetime.now().strftime("%B %d, %Y")
-    
-    prompt = f"""Generate a professional investment due diligence report in HTML format.
-
-**IMPORTANT: Use this exact date: {current_date}**
-
-Style it like a McKinsey or Goldman Sachs investment memo with:
-- Clean, professional design with dark blue (#1a365d) and gold (#d4af37) colors
-- Executive summary at the top with DATE: {current_date}
-- Clear section headers with good typography
-- Data tables for metrics
-- Print-friendly layout
-
-DATA TO FORMAT:
-{report_data}
-
-SECTIONS TO INCLUDE:
-1. Executive Summary (Date: {current_date})
-2. Company Overview
-3. Market Opportunity
-4. Financial Analysis
-5. Risk Assessment
-6. Investment Recommendation
-
-Generate complete, valid HTML with embedded CSS."""
-
+def generate_html_report(report_data: str, company_name: str = "目标公司") -> dict:
+    """将投资备忘录保存为本地 HTML 报告。"""
     try:
-        client = Client()
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-        )
-
-        html_content = response.text
-
-        # Clean up markdown wrapping if present
-        if "```html" in html_content:
-            start = html_content.find("```html") + 7
-            end = html_content.rfind("```")
-            html_content = html_content[start:end].strip()
-        elif "```" in html_content:
-            start = html_content.find("```") + 3
-            end = html_content.rfind("```")
-            html_content = html_content[start:end].strip()
-
-        # Save as ADK artifact (MUST await)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        artifact_name = f"investment_report_{timestamp}.html"
-        html_artifact = types.Part.from_bytes(
-            data=html_content.encode('utf-8'),
-            mime_type="text/html"
-        )
-        
-        version = await tool_context.save_artifact(filename=artifact_name, artifact=html_artifact)
-        logger.info(f"Saved HTML artifact: {artifact_name} (version {version})")
-
-        # Also save to outputs folder
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        safe_company = html.escape(company_name)
+        safe_report = html.escape(report_data).replace("\n", "<br>\n")
+        html_content = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{safe_company} 投资尽调报告</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; color: #172026; background: #f6f7f9; }}
+    main {{ max-width: 980px; margin: 0 auto; padding: 40px 28px; background: #ffffff; min-height: 100vh; }}
+    h1 {{ color: #0f766e; margin-bottom: 6px; }}
+    .meta {{ color: #667085; margin-bottom: 28px; }}
+    .content {{ line-height: 1.72; font-size: 15px; }}
+    @media print {{ body {{ background: #ffffff; }} main {{ padding: 24px; }} }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{safe_company} 投资尽调报告</h1>
+    <div class="meta">生成日期：{current_date}</div>
+    <section class="content">{safe_report}</section>
+  </main>
+</body>
+</html>
+"""
+        artifact_name = f"investment_report_{_timestamp()}.html"
         filepath = OUTPUTS_DIR / artifact_name
-        filepath.write_text(html_content, encoding='utf-8')
-        
+        filepath.write_text(html_content, encoding="utf-8")
         return {
             "status": "success",
-            "message": f"Report saved as '{artifact_name}' - view in Artifacts tab",
+            "message": f"HTML 尽调报告已保存：{filepath}",
             "artifact": artifact_name,
-            "version": version
+            "path": str(filepath),
         }
+    except Exception as exc:
+        logger.exception("生成 HTML 报告失败")
+        return {"status": "error", "message": str(exc)}
 
-    except Exception as e:
-        logger.error(f"Error generating HTML report: {e}")
-        return {"status": "error", "message": str(e)}
 
-
-async def generate_infographic(
-    data_summary: str,
-    tool_context: ToolContext
+def generate_infographic(
+    company_name: str,
+    recommendation: str = "待定",
+    market_size: str = "待确认",
+    risk_score: str = "待评估",
+    key_metrics: str = "公开数据有限",
 ) -> dict:
-    """Generate an investment infographic using Gemini's image generation.
-
-    Args:
-        data_summary: Key metrics and data to visualize
-        tool_context: ADK tool context for artifact saving
-
-    Returns:
-        dict with status and artifact info
-    """
-    prompt = f"""Create a professional investment infographic.
-
-Style: Clean, modern, investment banking aesthetic
-Colors: Dark blue (#1a365d) primary, gold (#d4af37) accent, white background
-
-Content to visualize:
-{data_summary}
-
-Include:
-1. Company name prominently at top
-2. Key metrics in large, bold numbers
-3. Market size visualization
-4. Risk score indicator (1-10 scale)
-5. Investment recommendation badge
-
-Make it look like a Goldman Sachs one-pager. Professional, data-rich."""
-
+    """生成本地 SVG 摘要卡片，不依赖外部图片模型。"""
     try:
-        client = Client()
-        response = await client.aio.models.generate_content(
-            model="gemini-3-pro-image-preview",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"]
-            )
-        )
-
-        # Look for image in response
-        for part in response.candidates[0].content.parts:
-            if part.inline_data and part.inline_data.mime_type.startswith("image/"):
-                image_bytes = part.inline_data.data
-                mime_type = part.inline_data.mime_type
-                
-                # Save as ADK artifact (MUST await)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                ext = "png" if "png" in mime_type else "jpg"
-                artifact_name = f"infographic_{timestamp}.{ext}"
-                
-                image_artifact = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-                version = await tool_context.save_artifact(filename=artifact_name, artifact=image_artifact)
-                logger.info(f"Saved infographic artifact: {artifact_name} (version {version})")
-                
-                # Also save to outputs folder
-                filepath = OUTPUTS_DIR / artifact_name
-                filepath.write_bytes(image_bytes)
-                
-                return {
-                    "status": "success",
-                    "message": f"Infographic saved as '{artifact_name}' - view in Artifacts tab",
-                    "artifact": artifact_name,
-                    "version": version
-                }
-
+        safe_company = html.escape(company_name)
+        safe_recommendation = html.escape(recommendation)
+        safe_market_size = html.escape(market_size)
+        safe_risk_score = html.escape(risk_score)
+        safe_key_metrics = html.escape(key_metrics)
+        svg_content = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <rect width="1200" height="720" fill="#f7fafc"/>
+  <rect x="64" y="56" width="1072" height="608" rx="8" fill="#ffffff" stroke="#d0d5dd"/>
+  <text x="96" y="128" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#0f766e">{safe_company}</text>
+  <text x="96" y="172" font-family="Arial, sans-serif" font-size="22" fill="#475467">VC 投资尽调摘要</text>
+  <rect x="96" y="230" width="300" height="150" rx="8" fill="#ecfdf3"/>
+  <text x="124" y="282" font-family="Arial, sans-serif" font-size="20" fill="#344054">投资建议</text>
+  <text x="124" y="336" font-family="Arial, sans-serif" font-size="36" font-weight="700" fill="#027a48">{safe_recommendation}</text>
+  <rect x="450" y="230" width="300" height="150" rx="8" fill="#eff6ff"/>
+  <text x="478" y="282" font-family="Arial, sans-serif" font-size="20" fill="#344054">市场规模</text>
+  <text x="478" y="336" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#175cd3">{safe_market_size}</text>
+  <rect x="804" y="230" width="300" height="150" rx="8" fill="#fff7ed"/>
+  <text x="832" y="282" font-family="Arial, sans-serif" font-size="20" fill="#344054">风险评分</text>
+  <text x="832" y="336" font-family="Arial, sans-serif" font-size="36" font-weight="700" fill="#c2410c">{safe_risk_score}</text>
+  <text x="96" y="458" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#172026">关键指标与判断</text>
+  <foreignObject x="96" y="486" width="1008" height="120">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: Arial, sans-serif; color:#344054; font-size:22px; line-height:1.5;">{safe_key_metrics}</div>
+  </foreignObject>
+</svg>
+"""
+        artifact_name = f"infographic_{_timestamp()}.svg"
+        filepath = OUTPUTS_DIR / artifact_name
+        filepath.write_text(svg_content, encoding="utf-8")
         return {
-            "status": "partial",
-            "message": "Image generation not available",
-            "description": response.text if response.text else "No content"
+            "status": "success",
+            "message": f"SVG 尽调摘要已保存：{filepath}",
+            "artifact": artifact_name,
+            "path": str(filepath),
         }
-
-    except Exception as e:
-        logger.error(f"Error generating infographic: {e}")
-        return {"status": "error", "message": str(e)}
+    except Exception as exc:
+        logger.exception("生成 SVG 摘要失败")
+        return {"status": "error", "message": str(exc)}

@@ -1,5 +1,6 @@
-openai
 agno>=2.2.10
+python-dotenv
+ddgs
 duckduckgo-search
 yfinance
 sqlalchemy

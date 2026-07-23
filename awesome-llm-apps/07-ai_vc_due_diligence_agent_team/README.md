@@ -1,332 +1,168 @@
-# 📊 AI VC Due Diligence Agent Team
+## AI VC 尽职调查 Agent 团队
 
-A multi-agent AI pipeline for startup investment analysis, built with [Google ADK](https://google.github.io/adk-docs/), Gemini 3 Pro, Gemini 3 Flash and Nano Banana Pro.
+这个应用是一个创业公司投资尽调 Agent 团队，使用 DeepSeek 模型服务，并结合 DuckDuckGo 网页搜索、本地图表生成、HTML 报告和 SVG 摘要卡片，生成结构化 VC 投资分析结果。
 
-**Works with any startup** - from early-stage unknowns to well-funded companies. Just provide a company name, website URL, or both.
+### 功能
 
-## Features
+- 支持 DeepSeek API
+- 公司研究员负责检索公司官网、融资、团队、产品和近期动态
+- 市场分析师负责分析市场规模、竞争格局、定位和行业趋势
+- 财务建模师负责估算 ARR、增长情景、退出倍数和回报区间
+- 风险分析师负责评估市场、执行、财务、监管和退出风险
+- 投资备忘录撰写员负责生成投资备忘录、HTML 报告和 SVG 摘要卡片
+- 通过 DuckDuckGo 进行网页搜索，不需要额外搜索 API 账号
+- 使用 AgentOS 和本地 AgentUI 进行图形化交互
 
-- 🔍 **Live Research** - Real-time web search for company and market data
-- 🌐 **URL Support** - Analyze any startup by their website URL
-- 📈 **Revenue Charts** - Bear/Base/Bull projection charts with matplotlib
-- 🧠 **Deep Risk Analysis** - Comprehensive risk assessment across 5 categories
-- 📄 **Professional Reports** - McKinsey-style HTML investment reports
-- 🎨 **Visual TL;DR** - AI-generated infographic summary for quick review
+### 快速开始
 
-## What It Does
+1. 进入项目目录
 
-Given a startup name or URL, the pipeline automatically:
-
-1. **Researches the company** - Founders, funding, product, traction
-2. **Analyzes the market** - TAM/SAM, competitors, positioning
-3. **Builds financial models** - Revenue projections, unit economics
-4. **Assesses risks** - Market, execution, financial, regulatory, exit
-5. **Generates investor memo** - Structured investment thesis
-6. **Creates HTML report** - Professional due diligence document
-7. **Generates infographic** - Visual summary for quick review
-
-## Quick Start
-
-### 1. Clone & Navigate
 ```bash
-git clone https://github.com/Shubhamsaboo/awesome-llm-apps.git
-cd awesome-llm-apps/advanced_ai_agents/multi_agent_apps/agent_teams/ai_vc_due_diligence_agent_team
+cd 07-ai_vc_due_diligence_agent_team
 ```
 
-### 2. Set Environment
-```bash
-export GOOGLE_API_KEY=your_api_key
-# Or create .env file:
-echo "GOOGLE_API_KEY=your_api_key" > .env
-```
+2. 安装依赖
 
-### 3. Install & Run
 ```bash
 pip install -r requirements.txt
-adk web
 ```
 
-### 4. Try It
-Works with company names, URLs, or both:
+3. 配置模型服务
 
-Open `http://localhost:8000` and try:
-- *"Analyze https://agno.com for Series A investment of $30-50M"*
-- *"Research Genspark AI for its next funding round"*
-- *"Analyze Lovable for Series C funding opportunities"*
-- *"Research emergent.sh for Series B funding in the $40-60M range"*
+在 `07-ai_vc_due_diligence_agent_team/.env` 或仓库根目录 `awesome-llm-apps/.env` 中填入你的 DeepSeek API key、服务地址和模型名：
 
-
-## Pipeline Architecture
-
-```
-User Query: "Analyze https://agno.com for Series A"
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              DueDiligencePipeline (SequentialAgent)             │
-│                                                                 │
-│  ┌─────────────┐    ┌────────────────┐    ┌──────────────────┐  │
-│  │  Stage 1    │    │    Stage 2     │    │     Stage 3      │  │
-│  │  Company    │───▶│    Market      │───▶│    Financial     │  │
-│  │  Research   │    │    Analysis    │    │    Modeling      │  │
-│  └─────────────┘    └────────────────┘    └──────────────────┘  │
-│         │                   │                      │            │
-│         ▼                   ▼                      ▼            │
-│  ┌─────────────┐    ┌────────────────┐    ┌──────────────────┐  │
-│  │  Stage 4    │    │    Stage 5     │    │     Stage 6      │  │
-│  │    Risk     │───▶│   Investor     │───▶│     Report       │  │
-│  │ Assessment  │    │     Memo       │    │    Generator     │  │
-│  └─────────────┘    └────────────────┘    └──────────────────┘  │
-│                                                    │            │
-│                                                    ▼            │
-│                                          ┌──────────────────┐   │
-│                                          │     Stage 7      │   │
-│                                          │   Infographic    │   │
-│                                          │    Generator     │   │
-│                                          └──────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-Artifacts: revenue_chart.png, investment_report.html, infographic.png
+```bash
+DEEPSEEK_API_KEY=你的DeepSeek API Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL_ID=deepseek-chat
 ```
 
----
+如果需要使用其他 DeepSeek 模型，可以把 `DEEPSEEK_MODEL_ID` 设置为服务支持的模型名，例如 `deepseek-chat`、`deepseek-reasoner`、`deepseek-v4-flash` 或 `deepseek-v4-pro`。
 
-## Agent Details
+4. 运行 AgentOS API
 
-### Stage 1: Company Research Agent
-
-**Purpose:** Gathers comprehensive company information through web search.
-
-| Property | Value |
-|----------|-------|
-| Model | `gemini-3-flash-preview` |
-| Tools | `google_search` |
-| Output Key | `company_info` |
-
-**What it researches:**
-- **Company Basics** - What they do, founding date, HQ location, team size
-- **Founders & Team** - Key people, backgrounds, LinkedIn profiles
-- **Product/Technology** - Core offering, how it works, target customers
-- **Funding History** - Rounds raised, investors, amounts
-- **Traction** - Customers, partnerships, growth signals
-- **Recent News** - Press coverage, product launches, announcements
-
-**For early-stage startups:** Checks website, LinkedIn, Crunchbase, AngelList, founder interviews, and notes when information is limited.
-
----
-
-### Stage 2: Market Analysis Agent
-
-**Purpose:** Analyzes market size, competition, and positioning.
-
-| Property | Value |
-|----------|-------|
-| Model | `gemini-3-flash-preview` |
-| Tools | `google_search` |
-| Input | `{company_info}` |
-| Output Key | `market_analysis` |
-
-**What it analyzes:**
-- **Market Size** - TAM, SAM, growth rate from industry reports
-- **Competitors** - Who else is in the space, their funding/traction
-- **Positioning** - How the company differentiates
-- **Trends** - Market drivers, emerging tech, regulatory changes
-
-**For early-stage:** Focuses on broader market category, identifies well-funded competitors, looks for market validation signals.
-
----
-
-### Stage 3: Financial Modeling Agent
-
-**Purpose:** Builds revenue projections and generates financial charts.
-
-| Property | Value |
-|----------|-------|
-| Model | `gemini-3-pro-preview` |
-| Tools | `generate_financial_chart` |
-| Input | `{company_info}`, `{market_analysis}` |
-| Output Key | `financial_model` |
-
-**What it calculates:**
-- **Current Metrics** - Estimated ARR, growth stage
-- **Growth Scenarios** (5-year projections):
-  - Bear Case: Conservative growth rates
-  - Base Case: Expected trajectory
-  - Bull Case: Optimistic scenario
-- **Return Analysis** - Exit valuations, MOIC, IRR estimates
-
-**Stage benchmarks:**
-- Seed: $0.1-0.5M ARR, 3-5x growth
-- Series A: $1-3M ARR, 2-3x growth
-- Series B: $5-15M ARR, 1.5-2x growth
-
-**Artifact:** Saves `revenue_chart_TIMESTAMP.png` with Bear/Base/Bull projections.
-
----
-
-### Stage 4: Risk Assessment Agent
-
-**Purpose:** Conducts deep risk analysis across multiple categories.
-
-| Property | Value |
-|----------|-------|
-| Model | `gemini-3-pro-preview` |
-| Tools | None (extended reasoning) |
-| Input | `{company_info}`, `{market_analysis}`, `{financial_model}` |
-| Output Key | `risk_assessment` |
-
-**Risk categories analyzed:**
-1. **Market Risk** - Competition, timing, adoption barriers
-2. **Execution Risk** - Team gaps, technology challenges, scaling
-3. **Financial Risk** - Burn rate, fundraising, unit economics
-4. **Regulatory Risk** - Compliance, legal, geopolitical
-5. **Exit Risk** - Acquirer landscape, IPO viability
-
-**For each risk provides:**
-- Severity (Low/Medium/High/Critical)
-- Description with evidence
-- Mitigation strategy
-
-**Final output:**
-- Overall Risk Score (1-10)
-- Top 3 risks that could kill the investment
-- Recommended protective terms
-
----
-
-### Stage 5: Investor Memo Agent
-
-**Purpose:** Synthesizes all findings into a structured investment memo.
-
-| Property | Value |
-|----------|-------|
-| Model | `gemini-3-pro-preview` |
-| Tools | None |
-| Input | All previous stages |
-| Output Key | `investor_memo` |
-
-**Memo structure:**
-1. **Executive Summary** - Company one-liner, recommendation, key highlights
-2. **Company Overview** - What they do, team, product/technology
-3. **Funding & Valuation** - History, estimated valuation range
-4. **Market Opportunity** - Size, growth, competitors, differentiation
-5. **Financial Analysis** - Revenue, unit economics, runway
-6. **Risk Analysis** - Top risks with severity, overall score
-7. **Investment Thesis** - Why invest, concerns, return scenarios
-8. **Recommendation** - Final verdict, suggested next steps
-
-**Recommendations:** Strong Buy / Buy / Hold / Pass
-
----
-
-### Stage 6: Report Generator Agent
-
-**Purpose:** Creates a professional HTML investment report.
-
-| Property | Value |
-|----------|-------|
-| Model | `gemini-3-flash-preview` |
-| Tools | `generate_html_report` |
-| Input | `{investor_memo}` |
-| Output Key | `html_report_result` |
-
-**Report features:**
-- McKinsey/Goldman Sachs styling
-- Dark blue (#1a365d) and gold (#d4af37) color scheme
-- Executive summary at top
-- Clear section headers with professional typography
-- Data tables for metrics
-- Print-friendly layout
-
-**Artifact:** Saves `investment_report_TIMESTAMP.html` viewable in any browser.
-
----
-
-### Stage 7: Infographic Generator Agent
-
-**Purpose:** Creates a visual summary infographic using AI image generation.
-
-| Property | Value |
-|----------|-------|
-| Model | `gemini-3-flash-preview` |
-| Tools | `generate_infographic` (uses `gemini-3-pro-image-preview`) |
-| Input | `{investor_memo}` |
-| Output Key | `infographic_result` |
-
-**Infographic includes:**
-- Company name prominently displayed
-- Key metrics in large, bold numbers
-- Market size visualization
-- Risk score indicator (1-10 scale)
-- Investment recommendation badge
-- Professional investment banking aesthetic
-
-**Artifact:** Saves `infographic_TIMESTAMP.png` for quick visual review.
-
----
-
-## Project Structure
-
-```
-ai_due_diligence_agent/
-├── __init__.py        # Exports root_agent
-├── agent.py           # All 7 agents + pipeline defined here
-├── tools.py           # Custom tools (chart, report, infographic)
-├── outputs/           # Generated artifacts saved here
-├── requirements.txt   # Python dependencies
-└── README.md          # This file
+```bash
+python agent.py
 ```
 
-## Generated Artifacts
+也可以从 `awesome-llm-apps` 仓库根目录运行：
 
-All artifacts are saved to the **Artifacts tab** in ADK web and the **`outputs/`** folder:
-
-```
-outputs/
-├── revenue_chart_20260104_143030.png       # Financial projections
-├── investment_report_20260104_143052.html  # Full HTML report
-└── infographic_20260104_143105.png         # Visual TL;DR
+```bash
+./scripts/run_07_agent.sh
 ```
 
-| Artifact | Format | Description |
-|----------|--------|-------------|
-| Revenue Chart | PNG | Bear/Base/Bull 5-year projections |
-| Investment Report | HTML | Full due diligence document |
-| Infographic | PNG/JPG | Visual summary one-pager |
+启动成功后，本地服务会运行在：
 
----
+```text
+http://localhost:7777
+```
 
-## ADK Features Demonstrated
+直接访问这个地址会看到 AgentOS API 信息。要使用图形化聊天界面，请在工作区根目录启动本地 AgentUI：
 
-| Feature | Usage |
-|---------|-------|
-| **SequentialAgent** | 7-stage pipeline orchestration |
-| **LlmAgent** | All specialized agents |
-| **google_search** | Real-time company/market research |
-| **Custom Tools** | Chart generation, HTML reports, infographics |
-| **Artifacts** | Saving and versioning generated files |
-| **State Management** | Passing data between pipeline stages via `output_key` |
-| **Multi-modal Output** | Text analysis + image generation |
+```bash
+cd ..
+./scripts/run_agent_ui.sh
+```
 
-## Models Used
+然后打开：
 
-| Agent | Model | Why |
-|-------|-------|-----|
-| CompanyResearch | `gemini-3-flash-preview` | Fast web search |
-| MarketAnalysis | `gemini-3-flash-preview` | Fast web search |
-| FinancialModeling | `gemini-3-pro-preview` | Complex calculations |
-| RiskAssessment | `gemini-3-pro-preview` | Deep reasoning |
-| InvestorMemo | `gemini-3-pro-preview` | Synthesis quality |
-| ReportGenerator | `gemini-3-flash-preview` | Fast HTML generation |
-| InfographicGenerator | `gemini-3-flash-preview` | Orchestration |
-| Infographic Tool | `gemini-3-pro-image-preview` | Image generation |
+```text
+http://localhost:3000
+```
 
----
+并在 AgentUI 中连接本地 AgentOS 服务：
 
-## Learn More
+```text
+http://localhost:7777
+```
 
-- [Google ADK Documentation](https://google.github.io/adk-docs/)
-- [Multi Agent Patterns in ADK](https://developers.googleblog.com/developers-guide-to-multi-agent-patterns-in-adk/)
-- [Gemini API](https://ai.google.dev/gemini-api/docs)
-- [Gemini Image Generation](https://ai.google.dev/gemini-api/docs/image-generation)
+也可以先用本地 API 文档确认 AgentOS 服务正常：
+
+```text
+http://localhost:7777/docs
+```
+
+### 示例问题
+
+可以在 AgentUI 中尝试下面这些问题：
+
+- 请对 Cursor 做一份 Series A 投资尽调，重点分析市场、竞品、风险和估值区间。
+- 请分析 https://replit.com 是否适合作为成长轮投资机会，并生成投资备忘录。
+- 研究 Lovable 的产品、融资、竞争格局和潜在退出路径。
+- 请对 Perplexity 做 VC 尽调，区分公开确认信息和估计信息。
+- 请分析一个早期 AI 编程工具公司的投资机会，重点评估市场风险和执行风险。
+- 请为 https://v0.dev 生成公司研究、市场分析、财务情景预测和投资建议。
+- 比较一个 AI Agent 平台与传统 SaaS 工具的市场机会和风险差异。
+- 请生成一份适合投委会讨论的创业公司投资备忘录，并保存本地报告文件。
+
+### 生成文件
+
+工具生成的文件会保存到项目目录下的 `outputs/`：
+
+```text
+07-ai_vc_due_diligence_agent_team/outputs/
+```
+
+可能生成的文件包括：
+
+- `revenue_chart_*.png`：保守、基准、乐观三种 ARR 情景预测图
+- `investment_report_*.html`：本地 HTML 投资尽调报告
+- `infographic_*.svg`：本地 SVG 投资摘要卡片
+
+这些文件是本地生成的，不依赖外部图片生成服务。
+
+### 代码流程图
+
+```mermaid
+flowchart TD
+    A["用户在 AgentUI 输入公司名、官网或融资轮次"] --> B["AgentOS 接收请求"]
+    B --> C["VC 尽职调查团队协调任务"]
+    C --> D["公司研究员使用 DuckDuckGo 检索公开信息"]
+    D --> E["市场分析师分析市场规模、竞品和定位"]
+    E --> F["财务建模师估算 ARR 和增长情景"]
+    F --> G["generate_financial_chart 生成收入预测图"]
+    G --> H["风险分析师评估五类投资风险"]
+    H --> I["投资备忘录撰写员生成结构化备忘录"]
+    I --> J["generate_html_report 保存 HTML 报告"]
+    I --> K["generate_infographic 保存 SVG 摘要卡片"]
+    J --> L["AgentUI 展示中文结论和文件路径"]
+    K --> L
+```
+
+核心数据流：
+
+- `company_research_agent`：输出公司概况、团队、融资、产品、牵引力和信息缺口。
+- `market_analysis_agent`：输出市场机会、竞品、定位差异和趋势风险。
+- `financial_modeling_agent`：调用 `generate_financial_chart()`，保存收入预测图。
+- `risk_assessment_agent`：输出五类风险、总体风险评分和保护性条款建议。
+- `memo_agent`：调用 `generate_html_report()` 和 `generate_infographic()`，保存本地报告文件。
+- `due_diligence_team`：协调所有成员，并输出最终中文投资分析。
+
+### 访问方式说明
+
+`http://localhost:7777` 是本地 AgentOS API 服务，不是聊天网页。直接打开它通常只会看到类似下面的 JSON，表示服务已经启动：
+
+```json
+{"name":"AgentOS API","id":"...","version":"1.0.0"}
+```
+
+图形化聊天界面由工作区内的本地 AgentUI 提供：
+
+```text
+http://localhost:3000
+```
+
+本地 Python 进程负责运行 Agent、Team、网页搜索和文件生成工具，AgentUI 负责展示聊天、会话和运行管理界面。AgentUI 连接的本地 AgentOS 地址是：
+
+```text
+http://localhost:7777
+```
+
+如果聊天界面无法使用，可按下面顺序排查：
+
+1. 打开 `http://localhost:7777/docs`，能看到 Swagger 页面说明本地服务正常。
+2. 打开 `http://localhost:3000`，确认本地 AgentUI 正常启动。
+3. 在 AgentUI 中连接 `http://localhost:7777`。
+4. 确认 `.env` 中已经配置 `DEEPSEEK_API_KEY`。
+
+> 本项目仅用于技术学习与原型验证，不构成投资、税务、保险或法律建议。

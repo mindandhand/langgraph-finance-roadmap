@@ -4,7 +4,7 @@
 
 ### 功能
 
-- 支持 DeepSeek 官方 API
+- 支持 DeepSeek API
 - 通过 YFinance 获取实时股票数据
 - 通过 DuckDuckGo 进行网页搜索
 - 金融和数值数据会优先用表格展示
@@ -12,10 +12,10 @@
 
 ### 快速开始
 
-1. 克隆仓库
+1. 进入项目目录
+
 ```bash
-git clone https://github.com/Shubhamsaboo/awesome-llm-apps.git
-cd awesome-llm-apps/01-ai_finance_agent
+cd 01-ai_finance_agent
 ```
 
 2. 安装依赖
@@ -40,29 +40,55 @@ DEEPSEEK_MODEL_ID=deepseek-chat
 python finance_agent.py
 ```
 
+也可以从 `awesome-llm-apps` 仓库根目录运行：
+
+```bash
+./scripts/run_01_agent.sh
+```
+
 启动成功后，本地服务会运行在：
 
 ```text
 http://localhost:7777
 ```
 
-直接访问这个地址会看到 AgentOS API 信息。要使用图形化聊天界面，请打开 Agno 官方控制台并连接本地服务：
+直接访问这个地址会看到 AgentOS API 信息。要使用图形化聊天界面，请在工作区根目录启动本地 AgentUI：
 
-```text
-https://os.agno.com/
+```bash
+cd ..
+./scripts/run_agent_ui.sh
 ```
 
-如果 `https://os.agno.com/` 因网络、DNS 或地区访问限制打不开，可以先用本地方式确认 Agent 正常：
+然后打开：
+
+```text
+http://localhost:3000
+```
+
+并在 AgentUI 中连接本地 AgentOS 服务：
+
+```text
+http://localhost:7777
+```
+
+也可以先用本地 API 文档确认 AgentOS 服务正常：
 
 ```text
 http://localhost:7777/docs
 ```
 
-也可以直接运行本项目提供的终端聊天入口，不依赖 Agno 官方网页：
+### 示例问题
 
-```bash
-python local_chat.py
-```
+可以在 AgentUI 中尝试下面这些问题：
+
+- 请分析 AAPL 最近的股价表现，并用表格展示关键数据。
+- TSLA 当前股价是多少？最近有哪些重要新闻？
+- 比较 MSFT 和 GOOGL 的市值、PE、52 周高低点和近期表现。
+- NVDA 最近的上涨或下跌主要可能由哪些因素驱动？
+- 请给出 AMZN 的公司概况、主营业务和最近市场情绪。
+- 找出 META 最近的相关新闻，并总结可能影响股价的风险点。
+- 请用表格列出 JPM 的当前价格、成交量、市值和分析师建议。
+- 我想了解苹果公司的财务健康状况，请先查实时数据再给出要点。
 
 ### 访问方式说明
 
@@ -72,27 +98,22 @@ python local_chat.py
 {"name":"AgentOS API","id":"...","version":"1.0.0"}
 ```
 
-图形化聊天界面由 Agno 官方控制台提供：
+图形化聊天界面由工作区内的本地 AgentUI 提供：
 
 ```text
-https://os.agno.com/
+http://localhost:3000
 ```
 
-这里不是让 Agno 的服务器直接访问你的本地端口，而是你浏览器中打开的 Agno 控制台页面连接本机的 `http://localhost:7777`。本地 Python 进程负责运行 Agent 和工具调用，浏览器里的官方控制台负责展示聊天、会话和运行管理界面。
+本地 Python 进程负责运行 Agent 和工具调用，AgentUI 负责展示聊天、会话和运行管理界面。AgentUI 连接的本地 AgentOS 地址是：
 
-如果官方控制台无法访问，通常不是本地 AgentOS API 的问题。可按下面顺序排查：
+```text
+http://localhost:7777
+```
+
+如果聊天界面无法使用，可按下面顺序排查：
 
 1. 打开 `http://localhost:7777/docs`，能看到 Swagger 页面说明本地服务正常。
-2. 确认浏览器可以正常访问 `http://localhost:7777`。
-3. 使用 `python local_chat.py` 在终端里直接与 Agent 对话。
-4. 等外网环境可访问 `https://os.agno.com/` 后，再在官方控制台里添加 `http://localhost:7777`。
+2. 打开 `http://localhost:3000`，确认本地 AgentUI 正常启动。
+3. 在 AgentUI 中连接 `http://localhost:7777`。
 
-本项目不额外自写 Streamlit 页面，原因是它已经使用 Agno 的 `AgentOS` 运行方式。官方控制台正好匹配这套 API，可以复用 AgentOS 的会话、运行记录和后续管理能力；自写页面会绕开这些能力，并引入额外的前端和 Python 环境依赖。
-
-5. 连接 AgentOS
-
-如果需要通过浏览器中的 AgentOS Control Plane 管理、监控和使用这个 Agent，需要把当前运行的 AgentOS 实例连接到控制台。
-
-参考官方文档：
-
-- [Connecting Your OS](https://docs.agno.com/agent-os/connecting-your-os)
+本项目不额外自写 Streamlit 页面，原因是它已经使用 Agno 的 `AgentOS` 运行方式。本地 AgentUI 正好匹配这套 API，可以复用 AgentOS 的会话、运行记录和后续管理能力；自写页面会绕开这些能力，并引入额外的前端和 Python 环境依赖。
