@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEMO_DIR="$SCRIPT_DIR/../12-native-backtest-architecture"
 DATA_DIR="$SCRIPT_DIR/../qlib-data"
 
 export QLIB_PROVIDER_URI="$DATA_DIR"
@@ -11,5 +12,6 @@ export QLIB_START_TIME="2015-01-05"
 export QLIB_END_TIME="2026-07-18"
 export QLIB_TRAIN_END_TIME="2023-12-31"
 export QLIB_TEST_START_TIME="2024-01-01"
+export MLFLOW_ALLOW_FILE_STORE=true
 
-python "$SCRIPT_DIR/data_handler_and_dataset.py"
+python "$DEMO_DIR/native_backtest_architecture.py"

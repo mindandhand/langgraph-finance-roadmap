@@ -260,7 +260,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
                 "bash",
                 str(
                     ROOT
-                    / "qlib-demos/01-environment-and-data/run.sh"
+                    / "qlib-demos/script/run_01.sh"
                 ),
             ],
             cwd=ROOT,
@@ -286,7 +286,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
                 "bash",
                 str(
                     ROOT
-                    / "qlib-demos/01-environment-and-data/run.sh"
+                    / "qlib-demos/script/run_01.sh"
                 ),
             ],
             cwd=ROOT,
@@ -304,7 +304,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
         )
 
     def test_all_run_scripts_source_shared_environment(self) -> None:
-        run_scripts = sorted((ROOT / "qlib-demos").glob("*/run.sh"))
+        run_scripts = sorted((ROOT / "qlib-demos/script").glob("run_*.sh"))
 
         self.assertEqual(14, len(run_scripts))
         for run_script in run_scripts:
@@ -342,7 +342,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
 
     def test_native_backtest_enables_mlflow_file_store(self) -> None:
         run_script = (
-            ROOT / "qlib-demos/12-native-backtest-architecture/run.sh"
+            ROOT / "qlib-demos/script/run_12.sh"
         ).read_text()
 
         self.assertIn("export MLFLOW_ALLOW_FILE_STORE=true", run_script)
@@ -359,7 +359,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
                     "bash",
                     str(
                         ROOT
-                        / "qlib-demos/12-native-backtest-architecture/run.sh"
+                        / "qlib-demos/script/run_12.sh"
                     ),
                 ],
                 cwd=working_directory,
@@ -393,7 +393,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
                 "bash",
                 str(
                     ROOT
-                    / "qlib-demos/04-data-handler-and-dataset/run.sh"
+                    / "qlib-demos/script/run_04.sh"
                 ),
             ],
             cwd=ROOT,
@@ -410,7 +410,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
                 "bash",
                 str(
                     ROOT
-                    / "qlib-demos/11-alpha158-alpha360-feature-sets/run.sh"
+                    / "qlib-demos/script/run_11.sh"
                 ),
             ],
             cwd=ROOT,

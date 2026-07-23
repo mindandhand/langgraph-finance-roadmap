@@ -62,7 +62,7 @@ fields = [
 
 Qlib 0.9.7 的表达式引擎没有 `CSRank` 算子。横截面排名应在 `D.features` 返回数据后按 `datetime` 分组计算；第 6 节的 RankIC 正是这样实现的。
 
-本节的 `run.sh` 默认输出五只宽基 ETF 构成的横截面，但标的数量不会改变 `Rank(feature, N)` 的语义：它仍是每只 ETF 各自在时间窗口内的滚动百分位，不是同一日期上五只 ETF 之间的横截面排名。
+本节的 `script/run_03.sh` 默认输出五只宽基 ETF 构成的横截面，但标的数量不会改变 `Rank(feature, N)` 的语义：它仍是每只 ETF 各自在时间窗口内的滚动百分位，不是同一日期上五只 ETF 之间的横截面排名。
 
 ### `load_features(fields, names)`
 

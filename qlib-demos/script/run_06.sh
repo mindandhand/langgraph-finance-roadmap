@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEMO_DIR="$SCRIPT_DIR/../06-factor-evaluation"
 DATA_DIR="$SCRIPT_DIR/../qlib-data"
 
 export QLIB_PROVIDER_URI="$DATA_DIR"
@@ -14,4 +15,4 @@ export QLIB_END_TIME="2026-07-18"
 # export QLIB_FACTOR_EXPR='$close / Ref($close, 20) - 1'
 # export QLIB_LABEL_EXPR='Ref($close, -5) / $close - 1'
 
-python "$SCRIPT_DIR/factor_evaluation.py"
+python "$DEMO_DIR/factor_evaluation.py"

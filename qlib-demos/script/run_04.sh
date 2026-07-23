@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEMO_DIR="$SCRIPT_DIR/../04-data-handler-and-dataset"
 DATA_DIR="$SCRIPT_DIR/../qlib-data"
 
 export QLIB_PROVIDER_URI="$DATA_DIR"
@@ -12,4 +13,4 @@ export QLIB_END_TIME="2026-07-18"
 export QLIB_TRAIN_END_TIME="2023-12-31"
 export QLIB_TEST_START_TIME="2024-01-01"
 
-python "$SCRIPT_DIR/labels_and_time_splits.py"
+python "$DEMO_DIR/data_handler_and_dataset.py"

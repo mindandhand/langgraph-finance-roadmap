@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEMO_DIR="$SCRIPT_DIR/../03-qlib-expressions"
 DATA_DIR="$SCRIPT_DIR/../qlib-data"
 
 export QLIB_PROVIDER_URI="$DATA_DIR"
@@ -10,4 +11,4 @@ source "$SCRIPT_DIR/../qlib_env.sh"
 export QLIB_START_TIME="2015-01-05"
 export QLIB_END_TIME="2026-07-18"
 
-python "$SCRIPT_DIR/qlib_data_api.py"
+python "$DEMO_DIR/qlib_expressions.py"

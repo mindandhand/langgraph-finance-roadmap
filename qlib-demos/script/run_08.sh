@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEMO_DIR="$SCRIPT_DIR/../08-recorder-and-experiment"
 DATA_DIR="$SCRIPT_DIR/../qlib-data"
 
 export QLIB_PROVIDER_URI="$DATA_DIR"
@@ -10,4 +11,8 @@ source "$SCRIPT_DIR/../qlib_env.sh"
 export QLIB_START_TIME="2015-01-05"
 export QLIB_END_TIME="2026-07-18"
 
-python "$SCRIPT_DIR/config_driven_alpha_workflow.py"
+# Optional: override the factor / label expressions
+# export QLIB_FACTOR_EXPR='$close / Ref($close, 20) - 1'
+# export QLIB_LABEL_EXPR='Ref($close, -5) / $close - 1'
+
+python "$DEMO_DIR/recorder_and_experiment.py"

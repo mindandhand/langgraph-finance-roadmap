@@ -45,7 +45,7 @@ class QlibExpressionsRunTest(unittest.TestCase):
 
     def test_run_script_prints_rows_from_bundled_provider(self) -> None:
         result = subprocess.run(
-            ["bash", str(ROOT / "qlib-demos/03-qlib-expressions/run.sh")],
+            ["bash", str(ROOT / "qlib-demos/script/run_03.sh")],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -59,7 +59,7 @@ class QlibExpressionsRunTest(unittest.TestCase):
         result = subprocess.run(
             [
                 "bash",
-                str(ROOT / "qlib-demos/10-config-driven-alpha-workflow/run.sh"),
+                str(ROOT / "qlib-demos/script/run_10.sh"),
             ],
             cwd=ROOT,
             capture_output=True,
@@ -71,7 +71,7 @@ class QlibExpressionsRunTest(unittest.TestCase):
 
     def test_model_training_baseline_produces_predictions(self) -> None:
         result = subprocess.run(
-            ["bash", str(ROOT / "qlib-demos/07-model-training-baseline/run.sh")],
+            ["bash", str(ROOT / "qlib-demos/script/run_07.sh")],
             cwd=ROOT,
             capture_output=True,
             text=True,

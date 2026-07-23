@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEMO_DIR="$SCRIPT_DIR/../07-model-training-baseline"
 DATA_DIR="$SCRIPT_DIR/../qlib-data"
 
 export QLIB_PROVIDER_URI="$DATA_DIR"
@@ -9,11 +10,8 @@ export QLIB_REGION="cn"
 source "$SCRIPT_DIR/../qlib_env.sh"
 export QLIB_START_TIME="2015-01-05"
 export QLIB_END_TIME="2026-07-18"
+export QLIB_TRAIN_END_TIME="2023-12-31"
+export QLIB_TEST_START_TIME="2024-01-01"
+export MLFLOW_ALLOW_FILE_STORE=true
 
-# Optional overrides:
-# export QLIB_SCORE_EXPR='$close / Ref($close, 20) - 1'
-# export QLIB_LABEL_EXPR='Ref($close, -2) / Ref($close, -1) - 1'
-# export QLIB_TOPK=1
-# export QLIB_COST_RATE=0.001
-
-python "$SCRIPT_DIR/strategy_and_backtest.py"
+python "$DEMO_DIR/model_training_baseline.py"
