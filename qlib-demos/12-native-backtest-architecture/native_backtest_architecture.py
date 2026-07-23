@@ -80,6 +80,7 @@ def main() -> None:
         num_threads=4,
     )
     port_analysis_config = build_port_analysis_config(model, dataset)
+    print(f"benchmark: {port_analysis_config['backtest']['benchmark']}")
 
     with R.start(experiment_name="qlib_demo_native_backtest", recorder_name="alpha158_topk"):
         R.log_params(

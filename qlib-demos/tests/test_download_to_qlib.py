@@ -347,6 +347,46 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
 
         self.assertIn("export MLFLOW_ALLOW_FILE_STORE=true", run_script)
 
+    def test_native_backtest_demo_runs_with_bundled_provider(self) -> None:
+        environment = os.environ.copy()
+        environment.pop("QLIB_BENCHMARK", None)
+        environment.pop("QLIB_INSTRUMENTS", None)
+        repository_mlruns_existed = (ROOT / "mlruns").exists()
+
+        with tempfile.TemporaryDirectory() as working_directory:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(
+                        ROOT
+                        / "qlib-demos/12-native-backtest-architecture/run.sh"
+                    ),
+                ],
+                cwd=working_directory,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+
+            output = result.stdout + result.stderr
+            self.assertEqual(0, result.returncode, output)
+            self.assertIn(
+                "instruments: ['sh510050', 'sh510300', 'sh510500', "
+                "'sz159915', 'sh588000']",
+                output,
+            )
+            self.assertIn("benchmark: sh510300", output)
+            self.assertIn("portfolio report tail:", output)
+            self.assertIn("portfolio analysis:", output)
+            self.assertTrue(
+                (Path(working_directory) / "mlruns").is_dir(), output
+            )
+
+        self.assertEqual(
+            repository_mlruns_existed, (ROOT / "mlruns").exists()
+        )
+
     def test_data_handler_demo_runs_with_bundled_provider(self) -> None:
         result = subprocess.run(
             [
