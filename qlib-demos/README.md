@@ -47,6 +47,35 @@ pip install pyqlib pandas numpy lightgbm
 export QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data
 ```
 
+## 内置宽基 ETF 数据
+
+运行数据准备脚本会生成供这些 demo 共用的五只宽基 ETF 教学数据：
+
+```bash
+python qlib-demos/download_to_qlib.py
+```
+
+| Qlib 标的 | 源代码 | 指数 |
+|---|---|---|
+| sh510050 | 510050 | 上证50 |
+| sh510300 | 510300 | 沪深300 |
+| sh510500 | 510500 | 中证500 |
+| sz159915 | 159915 | 创业板 |
+| sh588000 | 588000 | 科创50 |
+
+下载器优先调用 AkShare 的 EastMoney ETF 日线接口，并按 `--adjust` 请求价格口径；默认为 `hfq` 后复权，使 2005 年起的完整价格历史严格为正，适合连续收益率教学。如果 EastMoney 因网络、响应结构或数值语义异常不可用，则使用精确交易所前缀标的（例如 `sh510050`）调用 Sina ETF 日线接口。Sina 不提供复权参数，因此回退数据按源端原样保存，不能保证符合请求的 `qfq`/`hfq` 口径；运行时会带上 EastMoney 失败类型与信息并明确告警。
+
+OHLCV 和 `factor` 是 provider 的核心字段。`amount` 仅在上游真实返回成交额时写入；Sina 回退没有成交额，因此对应 provider 不包含 `amount.day.bin`。下载器绝不会从价格或成交量推算、填充或伪造成交额。
+
+仓库当前内置的五标的快照由 EastMoney 主数据源以 `hfq` 口径生成，每个标的均含真实上游成交额，因此每个 feature 目录恰好有 7 个 `.day.bin` 文件。
+默认下载起点是 `2005-02-23`，以保留上证 50 ETF（`sh510050`）从上市日起的完整历史；其他 ETF 仍按各自真实上市日期起算。
+
+Provider 的交易日历取五只 ETF 日期的并集；每只 ETF 仍保留自己的实际上市区间，对齐到并集日历时，上市前的数据不可用并显示为 NaN。这组数据只用于教学，不代表生产股票池。各节 `run.sh` 默认使用这五只 ETF；调用方也可以在运行前设置 `QLIB_INSTRUMENTS` 覆盖默认值，例如：
+
+```bash
+QLIB_INSTRUMENTS=sh510300 bash qlib-demos/03-qlib-expressions/run.sh
+```
+
 可选参数：
 
 ```bash

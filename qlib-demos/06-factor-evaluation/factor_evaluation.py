@@ -28,14 +28,13 @@ def evaluate_factor(expression: str, label: str, quantiles: int = 5) -> dict:
                 "rank_ic": g["factor"].corr(g["label"], method="spearman"),
             }
         ),
-        include_groups=False,
     )
 
     def quantile_return(group: pd.DataFrame) -> pd.Series:
         bucket = pd.qcut(group["factor"].rank(method="first"), quantiles, labels=False, duplicates="drop")
         return group.groupby(bucket)["label"].mean()
 
-    quantile = data.groupby(level="datetime").apply(quantile_return, include_groups=False)
+    quantile = data.groupby(level="datetime").apply(quantile_return)
     quantile_mean = quantile.groupby(level=-1).mean().to_dict()
 
     ic_std = daily["ic"].std()

@@ -23,15 +23,16 @@ graph TD
 
 ```python
 handler = handler_cls(
-    instruments=market(),
+    instruments=instruments(),
     start_time=start_time(),
     end_time=end_time(),
     fit_start_time=start_time(),
     fit_end_time=train_end_time(),
+    infer_processors=[],
 )
 ```
 
-`fit_start_time` / `fit_end_time` 用于 Processor 拟合参数，例如标准化参数。它们应来自训练期，避免数据泄漏。
+`instruments()` 读取共享的 `QLIB_INSTRUMENTS` 配置；未覆盖时，本仓库会使用随数据包提供的五只 ETF。当前示例显式传入 `infer_processors=[]`，直接预览特征表达式的输出，并规避当前 Qlib 默认 `ProcessInf` 与 pandas 2.1 的月末频率别名不兼容问题。因此，这里没有额外的 inference processor 标准化步骤。`fit_start_time` / `fit_end_time` 仍限定在训练期，便于以后增加需要拟合的 Processor 时避免数据泄漏。
 
 ### `Alpha158`
 
@@ -39,7 +40,7 @@ handler = handler_cls(
 
 ### `Alpha360`
 
-`Alpha360` 更像固定历史窗口展开，把过去多日的 open/high/low/close/vwap/volume 归一化后作为特征。它适合让模型自己从窗口中学习模式。
+`Alpha360` 更像固定历史窗口展开，把过去多日的 open/high/low/close/vwap/volume 表达式作为特征。部分表达式自身包含相对价格计算，但本示例没有再通过 inference processor 做标准化。它适合让模型自己从窗口中学习模式。
 
 ### `DatasetH.prepare(...)`
 

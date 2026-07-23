@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qlib_demo_common import end_time, init_qlib, market, print_context, start_time, test_start_time, train_end_time
+from qlib_demo_common import end_time, init_qlib, instruments, print_context, start_time, test_start_time, train_end_time
 
 
 FEATURE_FIELDS = [
@@ -22,7 +22,7 @@ def build_dataset():
     from qlib.data.dataset.handler import DataHandlerLP
 
     handler = DataHandlerLP(
-        instruments=market(),
+        instruments=instruments(),
         start_time=start_time(),
         end_time=end_time(),
         data_loader={
@@ -36,7 +36,6 @@ def build_dataset():
         },
         learn_processors=[
             {"class": "DropnaLabel"},
-            {"class": "ProcessInf", "kwargs": {"fields_group": "feature"}},
             {"class": "Fillna", "kwargs": {"fields_group": "feature"}},
         ],
     )
@@ -69,7 +68,7 @@ def main() -> None:
     pred = model.predict(dataset, segment="test")
     label = dataset.prepare("test", col_set="label", data_key=DataHandlerLP.DK_L).iloc[:, 0]
     joined = pred.rename("score").to_frame().join(label.rename("label"), how="inner").dropna()
-    daily_ic = joined.groupby(level="datetime").apply(lambda g: g["score"].corr(g["label"]), include_groups=False)
+    daily_ic = joined.groupby(level="datetime").apply(lambda g: g["score"].corr(g["label"]))
 
     print("prediction rows:", len(pred))
     print("mean test IC:", round(float(daily_ic.mean()), 6))
