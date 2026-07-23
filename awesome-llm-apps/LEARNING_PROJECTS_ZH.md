@@ -6,13 +6,13 @@
 
 ## 一、金融 Agent 主线
 
-### 1. xAI 金融分析 Agent
+### 1. AI 金融分析 Agent
 
-- **路径**：[`starter_ai_agents/xai_finance_agent/`](starter_ai_agents/xai_finance_agent/)
-- **中文简介**：使用 Grok、Yahoo Finance 和 DuckDuckGo 查询股票行情、公司信息与相关新闻，并通过 AgentOS Playground 展示结构化金融分析结果。
+- **路径**：[`01-ai_finance_agent/`](01-ai_finance_agent/)
+- **中文简介**：使用 DeepSeek、Yahoo Finance 和 DuckDuckGo 查询股票行情、公司信息与相关新闻，并通过 AgentOS Playground 展示结构化金融分析结果。
 - **核心技术**：Agno、AgentOS、YFinance、DuckDuckGo、工具调用。
 - **学习重点**：最小 Agent 结构、模型与工具绑定、实时数据和自然语言结论的边界。
-- **难度/前置条件**：入门；Python 基础、xAI API Key。
+- **难度/前置条件**：入门；Python 基础、DeepSeek API Key。
 - **建议产出**：增加数据时间戳、来源和风险声明的单股票分析页。
 
 ### 2. AI 投资分析 Agent
