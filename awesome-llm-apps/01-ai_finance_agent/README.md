@@ -1,15 +1,13 @@
-## AI 金融 Agent 团队
+## AI 金融分析 Agent
 
-这个应用是一个多 Agent 金融研究团队，使用 DeepSeek 模型服务，并结合 DuckDuckGo 网页搜索、Yahoo Finance 金融数据和 SQLite 会话记录，生成结构化公司研究与金融分析结果。
+这个应用是一个金融分析 Agent，使用 DeepSeek 模型服务，并结合实时股票数据和网页搜索能力，提供结构化的金融分析结果。
 
 ### 功能
 
 - 支持 DeepSeek API
-- 网页研究员负责检索公司新闻、市场背景和公开信息
-- 金融数据分析师负责获取股票行情、公司信息、新闻和分析师建议
-- Team Agent 负责协调两个 Agent 并汇总最终分析
+- 通过 YFinance 获取实时股票数据
+- 通过 DuckDuckGo 进行网页搜索
 - 金融和数值数据会优先用表格展示
-- 使用 SQLite 保存 Agent 交互记录
 - 提供 AgentOS 交互式界面
 
 ### 快速开始
@@ -17,7 +15,7 @@
 1. 进入项目目录
 
 ```bash
-cd 04-ai_finance_agent_team
+cd 01-ai_finance_agent
 ```
 
 2. 安装依赖
@@ -28,8 +26,7 @@ pip install -r requirements.txt
 
 3. 配置模型服务
 
-在 `04-ai_finance_agent_team/.env` 或仓库根目录 `awesome-llm-apps/.env` 中填入你的 DeepSeek API key、服务地址和模型名：
-
+在 `01-ai_finance_agent/.env` 或仓库根目录 `awesome-llm-apps/.env` 中填入你的 DeepSeek API key、服务地址和模型名：
 ```bash
 DEEPSEEK_API_KEY=你的DeepSeek API Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
@@ -39,15 +36,14 @@ DEEPSEEK_MODEL_ID=deepseek-chat
 如果需要使用其他 DeepSeek 模型，可以把 `DEEPSEEK_MODEL_ID` 设置为服务支持的模型名，例如 `deepseek-chat`、`deepseek-reasoner`、`deepseek-v4-flash` 或 `deepseek-v4-pro`。
 
 4. 运行 AgentOS API
-
 ```bash
-python finance_agent_team.py
+python finance_agent.py
 ```
 
 也可以从 `awesome-llm-apps` 仓库根目录运行：
 
 ```bash
-./scripts/run_04_agent.sh
+./scripts/run_01_agent.sh
 ```
 
 启动成功后，本地服务会运行在：
@@ -85,14 +81,14 @@ http://localhost:7777/docs
 
 可以在 AgentUI 中尝试下面这些问题：
 
-- 请研究 NVDA 的最新市场动态、当前股价、公司信息和分析师建议，并给出风险点。
-- 比较 AAPL 和 MSFT 的近期表现、新闻背景和基本面信息。
-- 请分析 TSLA 最近股价波动可能受哪些新闻和基本面因素影响。
-- 研究 JPM 的当前股价、公司概况、相关新闻和分析师建议，并用表格展示关键数据。
-- 请给出 AMZN 的公司研究摘要，包括最新新闻、关键财务数据和谨慎结论。
-- 对比 GOOGL、META 和 AMZN 的市场叙事、风险因素和投资关注点。
-- 请为 COST 生成一份公司研究报告，包含网页信息、金融数据表和风险提示。
-- 找出近期可能影响 AMD 的重要新闻，并结合当前股价数据做分析。
+- 请分析 AAPL 最近的股价表现，并用表格展示关键数据。
+- TSLA 当前股价是多少？最近有哪些重要新闻？
+- 比较 MSFT 和 GOOGL 的市值、PE、52 周高低点和近期表现。
+- NVDA 最近的上涨或下跌主要可能由哪些因素驱动？
+- 请给出 AMZN 的公司概况、主营业务和最近市场情绪。
+- 找出 META 最近的相关新闻，并总结可能影响股价的风险点。
+- 请用表格列出 JPM 的当前价格、成交量、市值和分析师建议。
+- 我想了解苹果公司的财务健康状况，请先查实时数据再给出要点。
 
 ### 访问方式说明
 
@@ -108,7 +104,7 @@ http://localhost:7777/docs
 http://localhost:3000
 ```
 
-本地 Python 进程负责运行 Agent、Team 和工具调用，AgentUI 负责展示聊天、会话和运行管理界面。AgentUI 连接的本地 AgentOS 地址是：
+本地 Python 进程负责运行 Agent 和工具调用，AgentUI 负责展示聊天、会话和运行管理界面。AgentUI 连接的本地 AgentOS 地址是：
 
 ```text
 http://localhost:7777
@@ -121,5 +117,3 @@ http://localhost:7777
 3. 在 AgentUI 中连接 `http://localhost:7777`。
 
 本项目不额外自写 Streamlit 页面，原因是它已经使用 Agno 的 `AgentOS` 运行方式。本地 AgentUI 正好匹配这套 API，可以复用 AgentOS 的会话、运行记录和后续管理能力；自写页面会绕开这些能力，并引入额外的前端和 Python 环境依赖。
-
-> 本项目仅用于技术学习与原型验证，不构成投资、税务、保险或法律建议。

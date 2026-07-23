@@ -1,5 +1,5 @@
-"""AI Due Diligence Agent - Multi-Agent Pipeline for Startup Investment Analysis"""
+"""AI VC 尽职调查 Agent 团队。"""
 
-from .agent import root_agent
+from .agent import due_diligence_team, root_agent
 
-__all__ = ["root_agent"]
+__all__ = ["due_diligence_team", "root_agent"]

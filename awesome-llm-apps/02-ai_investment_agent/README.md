@@ -1,49 +1,121 @@
-## 📈 AI Investment Agent
+## AI 投资分析 Agent
 
-### 🎓 FREE Step-by-Step Tutorial 
-**👉 [Click here to follow our complete step-by-step tutorial](https://www.theunwindai.com/p/build-ai-investment-agent-with-gpt-4o) and learn how to build this from scratch with detailed code walkthroughs, explanations, and best practices.**
+这个应用是一个投资分析 Agent，使用 DeepSeek 模型服务，并结合 Yahoo Finance 数据，比较股票表现、检索公司信息，并生成结构化投资分析报告。
 
-This AI-powered investment agent is built with Agno's AgentOS framework that analyzes stocks and generates detailed investment reports. By using GPT-5.2 with Yahoo Finance data, this app provides valuable insights to help you make informed investment decisions.
+### 功能
 
-### Features
-- Compare the performance of two stocks
-- Retrieve comprehensive company information
-- Get the latest company news and analyst recommendations
-- Beautiful web UI powered by AgentOS
+- 支持 DeepSeek API
+- 通过 YFinance 获取股票行情、公司信息、新闻和分析师建议
+- 支持两只或多只股票的比较分析
+- 金融和数值数据会优先用表格展示
+- 提供 AgentOS 交互式界面
 
-### How to get Started?
+### 快速开始
 
-1. Clone the GitHub repository
+1. 进入项目目录
 
 ```bash
-git clone https://github.com/Shubhamsaboo/awesome-llm-apps.git
-cd advanced_ai_agents/single_agent_apps/ai_investment_agent
+cd 02-ai_investment_agent
 ```
-2. Install the required dependencies:
+
+2. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
-3. Get your OpenAI API Key
 
-- Sign up for an [OpenAI account](https://platform.openai.com/) and obtain your API key.
-- Export your API key:
+3. 配置模型服务
+
+在 `02-ai_investment_agent/.env` 或仓库根目录 `awesome-llm-apps/.env` 中填入你的 DeepSeek API key、服务地址和模型名：
+
 ```bash
-export OPENAI_API_KEY="your-api-key-here"
+DEEPSEEK_API_KEY=你的DeepSeek API Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL_ID=deepseek-chat
 ```
 
-4. Run the AgentOS App
+如果需要使用其他 DeepSeek 模型，可以把 `DEEPSEEK_MODEL_ID` 设置为服务支持的模型名，例如 `deepseek-chat`、`deepseek-reasoner`、`deepseek-v4-flash` 或 `deepseek-v4-pro`。
+
+4. 运行 AgentOS API
+
 ```bash
 python investment_agent.py
 ```
 
-5. Open your web browser and navigate to the URL provided in the console output to interact with the AI investment agent through the playground interface.
+也可以从 `awesome-llm-apps` 仓库根目录运行：
 
-6. Connecting Your AgentOS
+```bash
+./scripts/run_02_agent.sh
+```
 
-To manage, monitor, and interact with your financial agent through the AgentOS Control Plane (from your browser), you need to connect your running AgentOS instance:
+启动成功后，本地服务会运行在：
 
-**Step-by-step guide:**
+```text
+http://localhost:7777
+```
 
-- Visit the official documentation: [Connecting Your OS](https://docs.agno.com/agent-os/connecting-your-os)
-- Follow the steps in the guide to register your local AgentOS and establish the connection.
+直接访问这个地址会看到 AgentOS API 信息。要使用图形化聊天界面，请在工作区根目录启动本地 AgentUI：
+
+```bash
+cd ..
+./scripts/run_agent_ui.sh
+```
+
+然后打开：
+
+```text
+http://localhost:3000
+```
+
+并在 AgentUI 中连接本地 AgentOS 服务：
+
+```text
+http://localhost:7777
+```
+
+也可以先用本地 API 文档确认 AgentOS 服务正常：
+
+```text
+http://localhost:7777/docs
+```
+
+### 示例问题
+
+可以在 AgentUI 中尝试下面这些问题：
+
+- 比较 AAPL 和 MSFT 的近期股价表现、基本面和分析师建议。
+- 如果只能在 NVDA 和 AMD 中选一只，请基于公开数据做投资对比。
+- 比较 TSLA 和 BYDDF 的估值、增长叙事、风险和市场情绪。
+- 请为 GOOGL、META 和 AMZN 做一份三家公司投资对比表。
+- 对比 JPM 和 BAC 的财务表现、股息情况和潜在风险。
+- 请分析 COST 和 WMT 哪个更适合防御型投资组合。
+- 比较 KO 和 PEP 的基本面、估值和长期稳定性。
+- 请生成一份关于 MSFT vs AAPL 的投资报告，包括结论、关键数据和风险提示。
+
+### 访问方式说明
+
+`http://localhost:7777` 是本地 AgentOS API 服务，不是聊天网页。直接打开它通常只会看到类似下面的 JSON，表示服务已经启动：
+
+```json
+{"name":"AgentOS API","id":"...","version":"1.0.0"}
+```
+
+图形化聊天界面由工作区内的本地 AgentUI 提供：
+
+```text
+http://localhost:3000
+```
+
+本地 Python 进程负责运行 Agent 和工具调用，AgentUI 负责展示聊天、会话和运行管理界面。AgentUI 连接的本地 AgentOS 地址是：
+
+```text
+http://localhost:7777
+```
+
+如果聊天界面无法使用，可按下面顺序排查：
+
+1. 打开 `http://localhost:7777/docs`，能看到 Swagger 页面说明本地服务正常。
+2. 打开 `http://localhost:3000`，确认本地 AgentUI 正常启动。
+3. 在 AgentUI 中连接 `http://localhost:7777`。
+
+本项目不额外自写 Streamlit 页面，原因是它已经使用 Agno 的 `AgentOS` 运行方式。本地 AgentUI 正好匹配这套 API，可以复用 AgentOS 的会话、运行记录和后续管理能力；自写页面会绕开这些能力，并引入额外的前端和 Python 环境依赖。
